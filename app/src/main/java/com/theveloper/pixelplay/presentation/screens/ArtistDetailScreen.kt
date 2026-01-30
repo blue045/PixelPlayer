@@ -47,6 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import com.theveloper.pixelplay.data.model.Artist
+import com.theveloper.pixelplay.presentation.components.AdaptiveScrollbar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.NavBarContentHeight
 import com.theveloper.pixelplay.presentation.components.PlaylistBottomSheet
@@ -195,65 +196,68 @@ fun ArtistDetailScreen(
                     val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
 
                     val albumSections = uiState.albumSections
-                    LazyColumn(
-                        state = lazyListState,
-                        contentPadding = PaddingValues(
-                            top = currentTopBarHeightDp,
-                            bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
-                        ),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 0.dp)
-                    ) {
-                        albumSections.forEachIndexed { index, section ->
-                            if (section.songs.isEmpty()) return@forEachIndexed
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = lazyListState,
+                            contentPadding = PaddingValues(
+                                top = currentTopBarHeightDp,
+                                bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
+                            ),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 0.dp)
+                        ) {
+                            albumSections.forEachIndexed { index, section ->
+                                if (section.songs.isEmpty()) return@forEachIndexed
 
-                            stickyHeader(key = "artist_album_${section.albumId}_${section.title}_header") {
-                                AlbumSectionHeader(
-                                    section = section,
-                                    onPlayAlbum = {
-                                        section.songs.firstOrNull()?.let { firstSong ->
-                                            playerViewModel.showAndPlaySong(firstSong, section.songs)
+                                stickyHeader(key = "artist_album_${section.albumId}_${section.title}_header") {
+                                    AlbumSectionHeader(
+                                        section = section,
+                                        onPlayAlbum = {
+                                            section.songs.firstOrNull()?.let { firstSong ->
+                                                playerViewModel.showAndPlaySong(firstSong, section.songs)
+                                            }
                                         }
+                                    )
+                                }
+
+                                item(key = "artist_album_${section.albumId}_${section.title}_header_spacing") {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
+
+                                itemsIndexed(
+                                    items = section.songs,
+                                    key = { _, song -> "artist_album_${section.albumId}_song_${song.id}" }
+                                ) { songIndex, song ->
+                                    EnhancedSongListItem(
+                                        song = song,
+                                        isCurrentSong = stablePlayerState.currentSong?.id == song.id,
+                                        isPlaying = stablePlayerState.isPlaying,
+                                        isLoading = false,
+                                        onMoreOptionsClick = {
+                                            playerViewModel.selectSongForInfo(song)
+                                            showSongInfoBottomSheet = true
+                                        },
+                                        onClick = { playerViewModel.showAndPlaySong(song, section.songs) }
+                                    )
+
+                                    if (songIndex != section.songs.lastIndex) {
+                                        Spacer(modifier = Modifier.height(8.dp))
                                     }
-                                )
-                            }
+                                }
 
-                            item(key = "artist_album_${section.albumId}_${section.title}_header_spacing") {
-                                Spacer(modifier = Modifier.height(12.dp))
-                            }
-
-                            itemsIndexed(
-                                items = section.songs,
-                                key = { _, song -> "artist_album_${section.albumId}_song_${song.id}" }
-                            ) { songIndex, song ->
-                                EnhancedSongListItem(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    song = song,
-                                    isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                    isPlaying = stablePlayerState.isPlaying,
-                                    onMoreOptionsClick = {
-                                        playerViewModel.selectSongForInfo(song)
-                                        showSongInfoBottomSheet = true
-                                    },
-                                    onClick = { playerViewModel.showAndPlaySong(song, section.songs) }
-                                )
-
-                                if (songIndex != section.songs.lastIndex) {
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                item(key = "artist_album_${section.albumId}_${section.title}_footer_spacing") {
+                                    Spacer(
+                                        modifier = Modifier.height(
+                                            if (index == albumSections.lastIndex) 24.dp else 20.dp
+                                        )
+                                    )
                                 }
                             }
-
-                            item(key = "artist_album_${section.albumId}_${section.title}_footer_spacing") {
-                                Spacer(
-                                    modifier = Modifier.height(
-                                        if (index == albumSections.lastIndex) 24.dp else 20.dp
-                                    )
-                                )
-                            }
                         }
-
-
+                        Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                            AdaptiveScrollbar(state = lazyListState)
+                        }
                     }
 
                     CustomCollapsingTopBar(

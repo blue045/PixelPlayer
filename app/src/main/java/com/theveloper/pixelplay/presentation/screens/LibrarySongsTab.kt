@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.presentation.components.AdaptiveScrollbar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
@@ -177,6 +178,9 @@ fun LibrarySongsTab(
                                 onClick = rememberedOnClick
                             )
                         }
+                    }
+                    Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                        AdaptiveScrollbar(state = listState)
                     }
                 }
                 // Top gradient fade effect

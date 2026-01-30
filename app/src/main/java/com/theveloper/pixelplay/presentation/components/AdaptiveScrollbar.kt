@@ -90,7 +90,7 @@ fun AdaptiveScrollbar(
         isScrollInProgress = { state.isScrollInProgress },
         totalItemsCount = { state.layoutInfo.totalItemsCount },
         visibleItemsInfoProvider = {
-            state.layoutInfo.visibleItemsInfo.map { it.index to it.size }
+            state.layoutInfo.visibleItemsInfo.map { it.index to it.size.height }
         },
         firstVisibleItemIndexProvider = { state.firstVisibleItemIndex },
         firstVisibleItemScrollOffsetProvider = { state.firstVisibleItemScrollOffset },

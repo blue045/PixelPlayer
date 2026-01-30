@@ -66,6 +66,7 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.AiPlaylistSheet
 import com.theveloper.pixelplay.presentation.components.DailyMixMenu
+import com.theveloper.pixelplay.presentation.components.AdaptiveScrollbar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.NavBarContentHeight
 import com.theveloper.pixelplay.presentation.components.PlaylistBottomSheet
@@ -225,92 +226,96 @@ fun DailyMixScreen(
                 ContainedLoadingIndicator()
             }
         } else {
-            LazyColumn(
-                state = lazyListState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item(key = "daily_mix_header") {
-                    ExpressiveDailyMixHeader(
-                        songs = dailyMixSongs,
-                        scrollState = lazyListState,
-                        onShowMenu = { playerViewModel.showAiPlaylistSheet() }
-                    )
-                }
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item(key = "daily_mix_header") {
+                        ExpressiveDailyMixHeader(
+                            songs = dailyMixSongs,
+                            scrollState = lazyListState,
+                            onShowMenu = { playerViewModel.showAiPlaylistSheet() }
+                        )
+                    }
 
-                item(key = "play_shuffle_buttons") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(76.dp)
-                            .padding(horizontal = 20.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                if (dailyMixSongs.isNotEmpty()) {
-                                    playerViewModel.playSongs(dailyMixSongs, dailyMixSongs.first(), "Daily Mix")
-                                    if (isShuffleEnabled) playerViewModel.toggleShuffle() // Desactivar shuffle si estaba activo
-                                }
-                            },
+                    item(key = "play_shuffle_buttons") {
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(76.dp),
-                            enabled = dailyMixSongs.isNotEmpty(),
-                            shape = RoundedCornerShape(
-                                topStart = 60.dp,
-                                topEnd = 14.dp,
-                                bottomStart = 60.dp,
-                                bottomEnd = 14.dp
-                            )
+                                .fillMaxWidth()
+                                .height(76.dp)
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(
-                                ButtonDefaults.IconSize))
-                            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                            Text("Play it")
-                        }
-                        FilledTonalButton(
-                            onClick = {
-                                if (dailyMixSongs.isNotEmpty()) {
-                                    playerViewModel.playSongsShuffled(
-                                        songsToPlay = dailyMixSongs,
-                                        queueName = "Daily Mix"
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(76.dp),
-                            enabled = dailyMixSongs.isNotEmpty(),
-                            shape = RoundedCornerShape(
-                                topStart = 14.dp,
-                                topEnd = 60.dp,
-                                bottomStart = 14.dp,
-                                bottomEnd = 60.dp
-                            )
-                        ) {
-                            Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(
-                                ButtonDefaults.IconSize))
-                            Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                            Text("Shuffle")
+                            Button(
+                                onClick = {
+                                    if (dailyMixSongs.isNotEmpty()) {
+                                        playerViewModel.playSongs(dailyMixSongs, dailyMixSongs.first(), "Daily Mix")
+                                        if (isShuffleEnabled) playerViewModel.toggleShuffle() // Desactivar shuffle si estaba activo
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(76.dp),
+                                enabled = dailyMixSongs.isNotEmpty(),
+                                shape = RoundedCornerShape(
+                                    topStart = 60.dp,
+                                    topEnd = 14.dp,
+                                    bottomStart = 60.dp,
+                                    bottomEnd = 14.dp
+                                )
+                            ) {
+                                Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(
+                                    ButtonDefaults.IconSize))
+                                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                Text("Play it")
+                            }
+                            FilledTonalButton(
+                                onClick = {
+                                    if (dailyMixSongs.isNotEmpty()) {
+                                        playerViewModel.playSongsShuffled(
+                                            songsToPlay = dailyMixSongs,
+                                            queueName = "Daily Mix"
+                                        )
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(76.dp),
+                                enabled = dailyMixSongs.isNotEmpty(),
+                                shape = RoundedCornerShape(
+                                    topStart = 14.dp,
+                                    topEnd = 60.dp,
+                                    bottomStart = 14.dp,
+                                    bottomEnd = 60.dp
+                                )
+                            ) {
+                                Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle", modifier = Modifier.size(
+                                    ButtonDefaults.IconSize))
+                                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                Text("Shuffle")
+                            }
                         }
                     }
-                }
 
-                items(dailyMixSongs, key = { it.id }) { song ->
-                    EnhancedSongListItem(
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp),
-                        song = song,
-                        isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                        isPlaying = currentSongId == song.id && isPlaying,
-                        onClick = { playerViewModel.showAndPlaySong(song, dailyMixSongs, "Daily Mix", isVoluntaryPlay = false) },
-                        onMoreOptionsClick = {
-                            selectedSongForInfo = it
-                            showSongInfoSheet = true
-                        }
-                    )
+                    items(dailyMixSongs, key = { it.id }) { song ->
+                        EnhancedSongListItem(
+                            song = song,
+                            isCurrentSong = stablePlayerState.currentSong?.id == song.id,
+                            isPlaying = currentSongId == song.id && isPlaying,
+                            isLoading = false,
+                            onClick = { playerViewModel.showAndPlaySong(song, dailyMixSongs, "Daily Mix", isVoluntaryPlay = false) },
+                            onMoreOptionsClick = {
+                                selectedSongForInfo = song
+                                showSongInfoSheet = true
+                            }
+                        )
+                    }
+                }
+                Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                    AdaptiveScrollbar(state = lazyListState)
                 }
             }
         }

@@ -57,6 +57,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -121,6 +122,8 @@ import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistUiState
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.data.model.LibraryTabId
+import com.theveloper.pixelplay.data.model.displayTitle
+import com.theveloper.pixelplay.data.model.iconRes
 import com.theveloper.pixelplay.data.model.toLibraryTabIdOrNull
 import com.theveloper.pixelplay.data.preferences.LibraryNavigationMode
 import com.theveloper.pixelplay.data.worker.SyncProgress
@@ -148,7 +151,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material.icons.rounded.Edit as RoundedEdit
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.ButtonDefaults
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import kotlinx.collections.immutable.ImmutableList
@@ -160,6 +163,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -450,7 +454,7 @@ fun LibraryScreen(
                             onClick = { showReorderTabsSheet = true }
                         ) {
                             Icon(
-                                RoundedEdit,
+                                imageVector = Icons.Rounded.Edit,
                                 contentDescription = "Reorder tabs",
                                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
                             )
@@ -1266,6 +1270,134 @@ fun LibrarySongsTab(
     }
 }
 
+@Composable
+fun EnhancedSongListItem(
+    song: Song,
+    isPlaying: Boolean,
+    isCurrentSong: Boolean,
+    isLoading: Boolean,
+    onMoreOptionsClick: (Song) -> Unit,
+    onClick: () -> Unit
+) {
+    val surfaceShape = RoundedCornerShape(24.dp)
+    val containerColor =
+        if (isCurrentSong) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surfaceContainerLow
+    val contentColor =
+        if (isCurrentSong) MaterialTheme.colorScheme.onPrimaryContainer
+        else MaterialTheme.colorScheme.onSurface
+
+    val mvContainerColor = contentColor
+    val mvContentColor = containerColor
+    val albumShape = RoundedCornerShape(16.dp)
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = surfaceShape,
+        colors = CardDefaults.cardColors(containerColor = containerColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 13.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isLoading) {
+                ShimmerBox(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    ShimmerBox(
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ShimmerBox(
+                        modifier = Modifier
+                            .fillMaxWidth(0.4f)
+                            .height(16.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                ) {
+                    SmartImage(
+                        model = song.albumArtUriString,
+                        contentDescription = song.title,
+                        shape = albumShape,
+                        targetSize = Size(168, 168),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 14.dp)
+                ) {
+                    Text(
+                        text = song.title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        color = contentColor,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = song.displayArtist,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (isCurrentSong) {
+                    PlayingEqIcon(
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .size(width = 18.dp, height = 16.dp),
+                        color = contentColor,
+                        isPlaying = isPlaying
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                FilledIconButton(
+                    onClick = { onMoreOptionsClick(song) },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = mvContentColor,
+                        contentColor = mvContainerColor
+                    ),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .padding(end = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = "More options for ${song.title}",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun LibrarySongsTabPaginated(
@@ -1448,204 +1580,17 @@ fun LibrarySongsTabPaginated(
 
                         Box(modifier = Modifier.align(Alignment.CenterEnd)) {
                             AdaptiveScrollbar(state = listState)
-                        smoothnessAsPercentTR = 60,
-                        cornerRadiusTR = animatedCornerRadius,
-                        smoothnessAsPercentBR = 60,
-                        cornerRadiusBL = animatedCornerRadius,
-                        smoothnessAsPercentBL = 60,
-                        cornerRadiusBR = animatedCornerRadius,
-                        smoothnessAsPercentTL = 60
-                    )
-                }
-
-                val albumShape = remember(animatedCornerRadius) {
-                    AbsoluteSmoothCornerShape(
-                        cornerRadiusTL = animatedAlbumCornerRadius,
-                        smoothnessAsPercentTR = 60,
-                        cornerRadiusTR = animatedAlbumCornerRadius,
-                        smoothnessAsPercentBR = 60,
-                        cornerRadiusBL = animatedAlbumCornerRadius,
-                        smoothnessAsPercentBL = 60,
-                        cornerRadiusBR = animatedAlbumCornerRadius,
-                        smoothnessAsPercentTL = 60
-                    )
-                }
-
-                val colors = MaterialTheme.colorScheme
-                val containerColor =
-                    if ((isCurrentSong) && !isLoading) colors.primaryContainer else colors.surfaceContainerLow
-                val contentColor =
-                    if ((isCurrentSong) && !isLoading) colors.onPrimaryContainer else colors.onSurface
-
-                val mvContainerColor =
-                    if ((isCurrentSong) && !isLoading) colors.primaryContainer else colors.onSurface
-                val mvContentColor =
-                    if ((isCurrentSong) && !isLoading) colors.onPrimaryContainer else colors.surfaceContainerHigh
-
-                if (isLoading) {
-                    // Shimmer Placeholder Layout
-                    Surface(
-                        modifier = modifier
-                            .fillMaxWidth()
-                            .clip(surfaceShape),
-                        shape = surfaceShape,
-                        color = colors.surfaceContainerLow,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 13.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ShimmerBox(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                            )
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 12.dp)
-                            ) {
-                                ShimmerBox(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.7f)
-                                        .height(20.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                ShimmerBox(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.5f)
-                                        .height(16.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                ShimmerBox(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.3f)
-                                        .height(16.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            ShimmerBox(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                            )
-                        }
-                    }
-                } else {
-                    // Actual Song Item Layout
-                    var applyTextMarquee by remember { mutableStateOf(false) }
-
-                    Surface(
-                        modifier = modifier
-                            .fillMaxWidth()
-                            .clip(surfaceShape)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { onClick() },
-                                    onLongPress = { applyTextMarquee = !applyTextMarquee },
-                                    onPress = {
-                                        try {
-                                            awaitRelease()
-                                        } finally {
-                                            applyTextMarquee = false
-                                        }
-                                    })
-                            },
-                        shape = surfaceShape,
-                        color = containerColor,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 13.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                            ) {
-                                // Usando tu composable SmartImage
-                                SmartImage(
-                                    model = song.albumArtUriString,
-                                    contentDescription = song.title,
-                                    shape = albumShape,
-                                    targetSize = Size(168, 168), // 56dp * 3 (para densidad xxhdpi)
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 14.dp)
-                            ) {
-                                if (applyTextMarquee) {
-                                    AutoScrollingTextOnDemand(
-                                        text = song.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        gradientEdgeColor = containerColor,
-                                        expansionFractionProvider = { 1f },
-                                    )
-
-                                } else {
-                                    Text(
-                                        text = song.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        color = contentColor,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = song.displayArtist,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = contentColor.copy(alpha = 0.7f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            if (isCurrentSong) {
-                                PlayingEqIcon(
-                                    modifier = Modifier
-                                        .padding(start = 8.dp)
-                                        .size(width = 18.dp, height = 16.dp),
-                                    color = contentColor,
-                                    isPlaying = isPlaying
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            FilledIconButton(
-                                onClick = { onMoreOptionsClick(song) },
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = mvContentColor,
-                                    contentColor = mvContainerColor
-                                ),
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .padding(end = 4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.MoreVert,
-                                    contentDescription = "More options for ${song.title}",
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
 
-            @androidx.annotation.OptIn(UnstableApi::class)
-            @Composable
-            fun LibraryAlbumsTab(
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+fun LibraryAlbumsTab(
                 albums: ImmutableList<Album>,
                 isLoading: Boolean,
                 playerViewModel: PlayerViewModel,
@@ -2171,6 +2116,167 @@ fun LibrarySongsTabPaginated(
                     navController = navController,
                     playerViewModel = playerViewModel,
                 )
+            }
+
+            @Composable
+            fun LibraryFavoritesTab(
+                favoriteSongs: ImmutableList<Song>,
+                playerViewModel: PlayerViewModel,
+                bottomBarHeight: Dp,
+                onMoreOptionsClick: (Song) -> Unit,
+                isRefreshing: Boolean,
+                onRefresh: () -> Unit
+            ) {
+                val stablePlayerState by playerViewModel.stablePlayerState.collectAsState()
+                val listState = rememberLazyListState()
+                val pullToRefreshState = rememberPullToRefreshState()
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    PullToRefreshBox(
+                        isRefreshing = isRefreshing,
+                        onRefresh = onRefresh,
+                        state = pullToRefreshState,
+                        modifier = Modifier.fillMaxSize(),
+                        indicator = {
+                            PullToRefreshDefaults.LoadingIndicator(
+                                state = pullToRefreshState,
+                                isRefreshing = isRefreshing,
+                                modifier = Modifier.align(Alignment.TopCenter)
+                            )
+                        }
+                    ) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+                                .clip(
+                                    RoundedCornerShape(
+                                        topStart = 26.dp,
+                                        topEnd = 26.dp,
+                                        bottomStart = PlayerSheetCollapsedCornerRadius,
+                                        bottomEnd = PlayerSheetCollapsedCornerRadius
+                                    )
+                                ),
+                            state = listState,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = bottomBarHeight + MiniPlayerHeight + ListExtraBottomGap)
+                        ) {
+                            items(favoriteSongs, key = { "fav_${it.id}" }) { song ->
+                                val isPlayingThisSong =
+                                    song.id == stablePlayerState.currentSong?.id && stablePlayerState.isPlaying
+                                val rememberedOnMoreOptionsClick: (Song) -> Unit =
+                                    remember(onMoreOptionsClick) { { songFromListItem -> onMoreOptionsClick(songFromListItem) } }
+                                val rememberedOnClick: () -> Unit =
+                                    remember(song) { { playerViewModel.showAndPlaySong(song) } }
+
+                                EnhancedSongListItem(
+                                    song = song,
+                                    isPlaying = isPlayingThisSong,
+                                    isCurrentSong = stablePlayerState.currentSong?.id == song.id,
+                                    isLoading = false,
+                                    onMoreOptionsClick = rememberedOnMoreOptionsClick,
+                                    onClick = rememberedOnClick
+                                )
+                            }
+                        }
+
+                        Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                            AdaptiveScrollbar(state = listState)
+                        }
+                    }
+                }
+            }
+
+            @Composable
+            fun LibraryFoldersTab(
+                folders: ImmutableList<MusicFolder>,
+                currentFolder: MusicFolder?,
+                isLoading: Boolean,
+                bottomBarHeight: Dp,
+                stablePlayerState: StablePlayerState,
+                onNavigateBack: () -> Unit,
+                onFolderClick: (String) -> Unit,
+                onFolderAsPlaylistClick: (MusicFolder) -> Unit,
+                onPlaySong: (Song, List<Song>) -> Unit,
+                onMoreOptionsClick: (Song) -> Unit,
+                isPlaylistView: Boolean,
+                currentSortOption: SortOption,
+                isRefreshing: Boolean,
+                onRefresh: () -> Unit
+            ) {
+                // Placeholder implementation - this would need a full folder browser UI
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Folders view - implementation needed")
+                }
+            }
+
+            @OptIn(ExperimentalMaterial3Api::class)
+            @Composable
+            fun LibraryTabSwitcherSheet(
+                tabs: List<String>,
+                currentIndex: Int,
+                onTabSelected: (Int) -> Unit,
+                onEditClick: () -> Unit,
+                onDismiss: () -> Unit
+            ) {
+                val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ModalBottomSheet(
+                    onDismissRequest = onDismiss,
+                    sheetState = sheetState,
+                    dragHandle = { BottomSheetDefaults.DragHandle() }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Select Tab",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                        tabs.forEachIndexed { index, tab ->
+                            val tabId = tab.toLibraryTabIdOrNull()
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onTabSelected(index) }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (tabId != null) {
+                                    Icon(
+                                        painter = painterResource(id = tabId.iconRes()),
+                                        contentDescription = null,
+                                        modifier = Modifier.padding(end = 12.dp)
+                                    )
+                                    Text(
+                                        text = tabId.displayTitle(),
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                } else {
+                                    Text(
+                                        text = tab,
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(onClick = onEditClick) {
+                                Icon(
+                                    imageVector = Icons.Filled.Edit,
+                                    contentDescription = "Edit tabs"
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Edit")
+                            }
+                        }
+                    }
+                }
             }
 
 

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.CircularProgressIndicator
@@ -93,6 +94,7 @@ fun GenreDetailScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
         rememberTopAppBarState()
     )
+    val listState = rememberLazyListState()
 
     BackHandler(enabled = playerSheetState == PlayerSheetState.EXPANDED) {
         playerViewModel.collapsePlayerSheet()
@@ -189,25 +191,27 @@ fun GenreDetailScreen(
                         modifier = Modifier.align(Alignment.Center).padding(16.dp)
                     )
                 } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = 8.dp)
-                            .padding(horizontal = 16.dp)
-                            .clip(
-                                shape = AbsoluteSmoothCornerShape(
-                                    cornerRadiusTR = 28.dp,
-                                    smoothnessAsPercentTL = 60,
-                                    cornerRadiusTL = 28.dp,
-                                    smoothnessAsPercentTR = 60,
-                                    cornerRadiusBL = 0.dp,
-                                    cornerRadiusBR = 0.dp
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = 8.dp)
+                                .padding(horizontal = 16.dp)
+                                .clip(
+                                    shape = AbsoluteSmoothCornerShape(
+                                        cornerRadiusTR = 28.dp,
+                                        smoothnessAsPercentTL = 60,
+                                        cornerRadiusTL = 28.dp,
+                                        smoothnessAsPercentTR = 60,
+                                        cornerRadiusBL = 0.dp,
+                                        cornerRadiusBR = 0.dp
+                                    )
                                 )
-                            )
-                        ,
-                        contentPadding = PaddingValues(bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp)
-                    ) {
+                            ,
+                            contentPadding = PaddingValues(bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(24.dp)
+                        ) {
                         val sections = buildSections(uiState.groupedSongs)
 
                         items(sections, key = { it.id }) { section ->
@@ -227,8 +231,9 @@ fun GenreDetailScreen(
                                 }
                             }
                         }
-
-
+                        Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                            AdaptiveScrollbar(state = listState)
+                        }
                     }
                 }
             }
@@ -561,4 +566,6 @@ private fun SquareSongCard(
             }
         }
     }
+}
+
 }

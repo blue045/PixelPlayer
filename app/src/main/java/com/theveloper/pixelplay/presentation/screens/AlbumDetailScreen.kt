@@ -74,6 +74,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Album
+import com.theveloper.pixelplay.presentation.components.AdaptiveScrollbar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.NavBarContentHeight
 import com.theveloper.pixelplay.presentation.components.PlaylistBottomSheet
@@ -245,6 +246,7 @@ fun AlbumDetailScreen(
                             song = song,
                             isCurrentSong = stablePlayerState.currentSong?.id == song.id,
                             isPlaying = stablePlayerState.isPlaying,
+                            isLoading = false,
                             onMoreOptionsClick = {
                                 playerViewModel.selectSongForInfo(song)
                                 showSongInfoBottomSheet = true
@@ -252,6 +254,9 @@ fun AlbumDetailScreen(
                             onClick = { playerViewModel.showAndPlaySong(song, songs) }
                         )
                     }
+                }
+                Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                    AdaptiveScrollbar(state = lazyListState)
                 }
                 CollapsingAlbumTopBar(
                     album = album,
