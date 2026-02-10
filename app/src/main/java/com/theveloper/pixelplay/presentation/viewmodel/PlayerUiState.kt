@@ -56,5 +56,6 @@ data class PlayerUiState(
     val searchHistory: ImmutableList<SearchHistoryItem> = persistentListOf(),
     val searchQuery: String = "",
     val isSyncingLibrary: Boolean = false,
-    val selectedSearchFilter: SearchFilterType = SearchFilterType.ALL
+    val selectedSearchFilter: SearchFilterType = SearchFilterType.ALL,
+    val folderRootMapping: kotlinx.collections.immutable.ImmutableMap<String, String> = kotlinx.collections.immutable.persistentMapOf()
 )

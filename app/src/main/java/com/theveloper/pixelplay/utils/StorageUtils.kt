@@ -148,4 +148,7 @@ object StorageUtils {
             isRemovable = false
         )
     }
+
+    fun normalizePath(path: String): String =
+        runCatching { File(path).canonicalPath }.getOrElse { File(path).absolutePath }
 }

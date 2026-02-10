@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.MusicFolder
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
+import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 
 val defaultShape = RoundedCornerShape(26.dp) // Fallback shape
@@ -86,6 +87,7 @@ fun LibraryActionRow(
     currentFolder: MusicFolder?,
     folderRootPath: String,
     folderRootLabel: String,
+    labelMapping: Map<String, String> = emptyMap(),
     onFolderClick: (String) -> Unit,
     onNavigateBack: () -> Unit,
     isShuffleEnabled: Boolean = false
@@ -116,6 +118,7 @@ fun LibraryActionRow(
                     currentFolder = currentFolder,
                     rootPath = folderRootPath,
                     rootLabel = folderRootLabel,
+                    labelMapping = labelMapping,
                     onFolderClick = onFolderClick,
                     onNavigateBack = onNavigateBack
                 )
@@ -309,27 +312,40 @@ fun Breadcrumbs(
     currentFolder: MusicFolder?,
     rootPath: String,
     rootLabel: String,
+    labelMapping: Map<String, String> = emptyMap(),
     onFolderClick: (String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val rowState = rememberLazyListState()
-    val pathSegments = remember(currentFolder?.path, rootPath, rootLabel) {
+    val pathSegments = remember(currentFolder?.path, rootPath, rootLabel, labelMapping) {
         val path = currentFolder?.path ?: rootPath
         val normalizedRoot = rootPath.removeSuffix("/")
         val normalizedPath = path.removeSuffix("/")
-        val relativePath = normalizedPath
-            .removePrefix(normalizedRoot)
-            .removePrefix("/")
+        
+        // Use normalized paths for mapping lookup
+        val normalizedLabelMapping = labelMapping.mapKeys { it.key.removeSuffix("/") }
 
-        if (!normalizedPath.startsWith(normalizedRoot) || relativePath.isEmpty() || normalizedPath == normalizedRoot) {
+        if (normalizedPath == normalizedRoot || (normalizedRoot.isEmpty() && normalizedPath.isEmpty())) {
             listOf(rootLabel to rootPath)
         } else {
-            listOf(rootLabel to rootPath) + relativePath.split("/").scan("") { acc, segment ->
-                "$acc/$segment"
-            }.drop(1).map {
-                val file = File(rootPath, it)
-                file.name to file.path
+            val segments = mutableListOf<Pair<String, String>>()
+            segments.add(rootLabel to rootPath)
+            
+            val relativeSegments = if (normalizedRoot.isEmpty()) {
+                normalizedPath.removePrefix("/").split("/")
+            } else {
+                normalizedPath.removePrefix(normalizedRoot).removePrefix("/").split("/")
             }
+
+            var currentAccumulatedPath = normalizedRoot
+            relativeSegments.forEach { segment ->
+                if (segment.isNotEmpty()) {
+                    currentAccumulatedPath = if (currentAccumulatedPath.isEmpty()) "/$segment" else "$currentAccumulatedPath/$segment"
+                    val displayName = normalizedLabelMapping[currentAccumulatedPath] ?: segment
+                    segments.add(displayName to currentAccumulatedPath)
+                }
+            }
+            segments.toImmutableList()
         }
     }
 

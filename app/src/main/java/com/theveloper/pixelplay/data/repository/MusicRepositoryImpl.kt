@@ -521,17 +521,24 @@ class MusicRepositoryImpl @Inject constructor(
                 ?.path
                 ?.path
 
-            val selectedRootPath = when (folderSource) {
-                FolderSource.INTERNAL -> internalStorageRoot
-                FolderSource.SD_CARD -> sdStorageRoot ?: return@combine emptyList()
+            val roots = mutableListOf<Pair<String, String>>()
+            when (folderSource) {
+                FolderSource.INTERNAL -> roots.add("Internal Storage" to internalStorageRoot)
+                FolderSource.SD_CARD -> sdStorageRoot?.let { roots.add("SD Card" to it) } ?: return@combine emptyList()
+                FolderSource.ALL -> {
+                    roots.add("Internal Storage" to internalStorageRoot)
+                    sdStorageRoot?.let { roots.add("SD Card" to it) }
+                }
             }
-            val normalizedSelectedRoot = normalizePath(selectedRootPath)
+
+            val normalizedRoots = roots.map { it.first to normalizePath(it.second) }
 
             val songsToProcess = filteredByRules.filter { song ->
                 val songDir = File(song.path).parentFile ?: return@filter false
                 val normalizedDir = normalizePath(songDir.path)
-                normalizedDir == normalizedSelectedRoot ||
-                    normalizedDir.startsWith("$normalizedSelectedRoot/")
+                normalizedRoots.any { (_, rootPath) ->
+                    normalizedDir == rootPath || normalizedDir.startsWith("$rootPath/")
+                }
             }
 
             if (songsToProcess.isEmpty()) return@combine emptyList()
@@ -572,6 +579,11 @@ class MusicRepositoryImpl @Inject constructor(
                             break
                         }
 
+                        // Optimization: Stop building upwards if we reached any of the roots
+                        if (normalizedRoots.any { it.second == parentPath }) {
+                            break
+                        }
+
                         currentFile = parentFile
                         currentPath = parentPath
                     }
@@ -599,32 +611,40 @@ class MusicRepositoryImpl @Inject constructor(
                 )
             }
 
-            val rootTempFolder = tempFolders[normalizedSelectedRoot]
+            val result = if (normalizedRoots.size > 1) {
+                normalizedRoots.mapNotNull { (name, path) ->
+                    buildImmutableFolder(path, mutableSetOf())?.copy(name = name)
+                }.filter { it.totalSongCount > 0 }
+            } else {
+                val rootPath = normalizedRoots.first().second
+                val rootTempFolder = tempFolders[rootPath]
+                val initialResult = rootTempFolder?.subFolderPaths?.mapNotNull { path ->
+                    buildImmutableFolder(path, mutableSetOf())
+                }?.filter { it.totalSongCount > 0 }?.sortedBy { it.name.lowercase() } ?: emptyList()
 
-            val result = rootTempFolder?.subFolderPaths?.mapNotNull { path ->
-                buildImmutableFolder(path, mutableSetOf())
-            }?.filter { it.totalSongCount > 0 }?.sortedBy { it.name.lowercase() } ?: emptyList()
-
-            // Fallback for devices that might not use the standard storage root path
-            if (result.isEmpty() && tempFolders.isNotEmpty()) {
-                 val allSubFolderPaths = tempFolders.values.flatMap { it.subFolderPaths }.toSet()
-                 val topLevelPaths = (tempFolders.keys - allSubFolderPaths)
-                     .filter { topLevelPath ->
-                         topLevelPath == normalizedSelectedRoot ||
-                             topLevelPath.startsWith("$normalizedSelectedRoot/")
-                     }
-                     .flatMap { topLevelPath ->
-                         if (topLevelPath == normalizedSelectedRoot) {
-                             tempFolders[topLevelPath]?.subFolderPaths ?: emptySet()
-                         } else {
-                             setOf(topLevelPath)
-                         }
-                     }
-                 return@combine topLevelPaths
-                     .mapNotNull { topLevelPath -> buildImmutableFolder(topLevelPath, mutableSetOf()) }
-                     .filter { it.totalSongCount > 0 }
-                    .sortedBy { it.name.lowercase() }
-             }
+                // Fallback for devices that might not use the standard storage root path
+                if (initialResult.isEmpty() && tempFolders.isNotEmpty()) {
+                    val allSubFolderPaths = tempFolders.values.flatMap { it.subFolderPaths }.toSet()
+                    val topLevelPaths = (tempFolders.keys - allSubFolderPaths)
+                        .filter { topLevelPath ->
+                            topLevelPath == rootPath ||
+                                topLevelPath.startsWith("$rootPath/")
+                        }
+                        .flatMap { topLevelPath ->
+                            if (topLevelPath == rootPath) {
+                                tempFolders[topLevelPath]?.subFolderPaths ?: emptySet()
+                            } else {
+                                setOf(topLevelPath)
+                            }
+                        }
+                    topLevelPaths
+                        .mapNotNull { topLevelPath -> buildImmutableFolder(topLevelPath, mutableSetOf()) }
+                        .filter { it.totalSongCount > 0 }
+                        .sortedBy { it.name.lowercase() }
+                } else {
+                    initialResult
+                }
+            }
 
             result
         }.conflate().flowOn(Dispatchers.IO)

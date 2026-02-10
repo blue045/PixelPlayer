@@ -723,6 +723,7 @@ fun LibraryScreen(
                                         Environment.getExternalStorageDirectory().path
                                     },
                                     folderRootLabel = playerUiState.folderSource.displayName,
+                                    labelMapping = playerUiState.folderRootMapping,
                                     onFolderClick = { playerViewModel.navigateToFolder(it) },
                                     onNavigateBack = { playerViewModel.navigateBackFolder() },
                                     isShuffleEnabled = stablePlayerState.isShuffleEnabled
@@ -807,6 +808,17 @@ fun LibraryScreen(
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             val isSdAvailable = playerUiState.isSdCardAvailable
+                                            ToggleSegmentButton(
+                                                modifier = Modifier.weight(1f),
+                                                active = playerUiState.folderSource == FolderSource.ALL,
+                                                activeColor = MaterialTheme.colorScheme.primary,
+                                                inactiveColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                                                inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                activeCornerRadius = 32.dp,
+                                                onClick = { playerViewModel.setFoldersSource(FolderSource.ALL) },
+                                                text = "All"
+                                            )
                                             ToggleSegmentButton(
                                                 modifier = Modifier.weight(1f),
                                                 active = playerUiState.folderSource == FolderSource.INTERNAL,
