@@ -144,7 +144,7 @@ fun FullPlayerContent(
     repeatModeProvider: () -> Int,
     isShuffleEnabledProvider: () -> Boolean,
     totalDurationProvider: () -> Long,
-    lyricsProvider: () -> Lyrics? = { null }, 
+    lyricsProvider: () -> Lyrics? = { null },
     // State
     isCastConnecting: Boolean = false,
     // Event Handlers
@@ -173,7 +173,9 @@ fun FullPlayerContent(
     var showSongInfoBottomSheet by remember { mutableStateOf(false) }
     var showLyricsSheet by remember { mutableStateOf(false) }
     var showArtistPicker by rememberSaveable { mutableStateOf(false) }
-    
+
+    // REMOVED: val stablePlayerState by playerViewModel.stablePlayerState.collectAsState()
+
     val lyricsSearchUiState by playerViewModel.lyricsSearchUiState.collectAsState()
     val currentSongArtists by playerViewModel.currentSongArtists.collectAsState()
     val lyricsSyncOffset by playerViewModel.currentSongLyricsSyncOffset.collectAsState()
@@ -364,7 +366,7 @@ fun FullPlayerContent(
                     }
                 }
             ) {
-                 AlbumCarouselSection(
+                AlbumCarouselSection(
                     currentSong = song,
                     queue = currentPlaybackQueue,
                     expansionFraction = 1f, // Static layout
@@ -881,9 +883,16 @@ fun FullPlayerContent(
         enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
         exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut()
     ) {
+        // We can create a temporary StablePlayerState for LyricsSheet if needed, or update LyricsSheet to take Granular args.
+        // For now, let's keep LyricsSheet collecting stablePlayerState internally IF it must, OR better:
+        // Pass the subset we have.
+        // LyricsSheet signature: stablePlayerStateFlow: StateFlow<StablePlayerState>
+        // We can't change that easily without refactoring LyricsSheet too.
+        // For now, pass the flow but LyricsSheet is only visible when sheet is open.
+        // Ideally we should refactor LyricsSheet too, but let's stick to FullPlayerContent optimizations first.
         LyricsSheet(
-            stablePlayerStateFlow = playerViewModel.stablePlayerStateInfrequent,
-            playbackPositionFlow = playerViewModel.currentPlaybackPosition,
+            stablePlayerStateFlow = playerViewModel.stablePlayerState,
+            playerUiStateFlow = playerViewModel.playerUiState,
             lyricsSearchUiState = lyricsSearchUiState,
             resetLyricsForCurrentSong = {
                 showLyricsSheet = false
@@ -998,12 +1007,17 @@ private fun SongMetadataDisplaySection(
                 artist = currentSong.displayArtist,
                 artistId = currentSong.artistId,
                 artists = currentSongArtists,
+                albumId = currentSong.albumId,        // Add this
+                album = currentSong.album,
                 expansionFractionProvider = expansionFractionProvider,
                 textColor = textColor,
                 artistTextColor = artistTextColor,
                 gradientEdgeColor = gradientEdgeColor,
                 playerViewModel = playerViewModel,
                 onClickArtist = onClickArtist,
+                onClickAlbum = {                      // Add this
+                    playerViewModel.triggerAlbumNavigationFromPlayer(currentSong.albumId)
+                },
                 modifier = Modifier
                     .weight(1f)
                     .align(Alignment.CenterVertically)
@@ -1156,7 +1170,7 @@ private fun PlayerProgressBarSection(
         }
     }
     val durationForCalc = displayDurationValue.coerceAtLeast(1L)
-    
+
     // Pass isVisible to rememberSmoothProgress
     val (smoothProgressState, _) = rememberSmoothProgress(
         isPlayingProvider = isPlayingProvider,
@@ -1170,23 +1184,23 @@ private fun PlayerProgressBarSection(
     var sliderDragValue by remember { mutableStateOf<Float?>(null) }
     // Optimistic Seek: Holds the target position immediately after seek to prevent snap-back
     var optimisticPosition by remember { mutableStateOf<Long?>(null) }
-    
+
     // Clear optimistic position ONLY when the SMOOTH (visual) progress catches up
     // using raw position causes a jump because smooth progress might lag behind raw.
     LaunchedEffect(optimisticPosition) {
         val target = optimisticPosition
         if (target != null) {
             val start = System.currentTimeMillis()
-            
+
             while (optimisticPosition != null) {
                 // Check if the current VISUAL progress (smoothState) corresponds to the target
                 // We use the derived state value which falls back to smoothProgressState
                 val currentVisual = smoothProgressState.value
                 val currentVisualMs = (currentVisual * durationForCalc).toLong()
-                
+
                 // If visual is close enough (within 500ms visual distance)
                 if (kotlin.math.abs(currentVisualMs - target) < 500 || (System.currentTimeMillis() - start) > 2000) {
-                     optimisticPosition = null
+                    optimisticPosition = null
                 }
                 kotlinx.coroutines.delay(50)
             }
@@ -1206,23 +1220,23 @@ private fun PlayerProgressBarSection(
         durationForCalc
     ) {
         derivedStateOf {
-             if (sliderDragValue != null) {
-                 sliderDragValue!!
-             } else if (optimisticPosition != null) {
-                 (optimisticPosition!!.toFloat() / durationForCalc.toFloat()).coerceIn(0f, 1f)
-             } else {
-                 smoothProgressState.value
-             }
+            if (sliderDragValue != null) {
+                sliderDragValue!!
+            } else if (optimisticPosition != null) {
+                (optimisticPosition!!.toFloat() / durationForCalc.toFloat()).coerceIn(0f, 1f)
+            } else {
+                smoothProgressState.value
+            }
         }
     }
 
-    // No LaunchedEffect/snapshotFlow needed anymore. 
+    // No LaunchedEffect/snapshotFlow needed anymore.
     // smoothProgressState is already 60fps animated.
 
     val effectivePositionState = remember(durationForCalc, animatedProgressState, isVisible, displayDurationValue) {
         derivedStateOf {
-             val progress = animatedProgressState.value
-             (progress * durationForCalc).roundToLong().coerceIn(0L, displayDurationValue)
+            val progress = animatedProgressState.value
+            (progress * durationForCalc).roundToLong().coerceIn(0L, displayDurationValue)
         }
     }
 
@@ -1242,16 +1256,16 @@ private fun PlayerProgressBarSection(
         delayAppearThreshold = (loadingTweaks?.contentAppearThresholdPercent ?: 0) / 100f,
         delayCloseThreshold = 1f - ((loadingTweaks?.contentCloseThresholdPercent ?: 0) / 100f),
         placeholder = {
-             if (loadingTweaks?.transparentPlaceholders == true) {
-                 Box(Modifier.fillMaxWidth().heightIn(min = 70.dp))
-             } else {
-                 ProgressPlaceholder(
-                     expansionFraction = expansionFraction,
-                     color = placeholderColor,
-                     onColor = placeholderOnColor,
-                     showAudioMetaChip = showAudioFileInfo && !displayAudioMetaLabel.isNullOrBlank()
-                 )
-             }
+            if (loadingTweaks?.transparentPlaceholders == true) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 70.dp))
+            } else {
+                ProgressPlaceholder(
+                    expansionFraction = expansionFraction,
+                    color = placeholderColor,
+                    onColor = placeholderOnColor,
+                    showAudioMetaChip = showAudioFileInfo && !displayAudioMetaLabel.isNullOrBlank()
+                )
+            }
         }
     ) {
         Column(
@@ -1260,7 +1274,7 @@ private fun PlayerProgressBarSection(
                 .padding(vertical = lerp(2.dp, 0.dp, expansionFraction))
                 .heightIn(min = 70.dp)
         ) {
-            
+
             // Isolated Slider Component
             EfficientSlider(
                 valueState = animatedProgressState,
@@ -1311,7 +1325,6 @@ private fun EfficientSlider(
         inactiveTrackColor = inactiveTrackColor,
         thumbColor = thumbColor,
         isPlaying = isPlaying,
-        semanticsLabel = "Playback position",
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp, horizontal = 0.dp)
@@ -1326,17 +1339,13 @@ private fun EfficientTimeLabels(
     textColor: Color,
     audioMetaLabel: String?
 ) {
-    val coarsePositionMs by remember(isVisible, positionState) {
-        derivedStateOf {
-            if (!isVisible) 0L
-            else (positionState.value.coerceAtLeast(0L) / 1000L) * 1000L
-        }
+    // Move state derivation inside the component but remember it based on inputs
+    // Actually, we can just use derivedStateOf here.
+    val posStr by remember(isVisible) {
+        derivedStateOf { if (isVisible) formatDuration(positionState.value) else "--:--" }
     }
-    val posStr by remember(isVisible, coarsePositionMs) {
-        derivedStateOf { if (isVisible) formatDuration(coarsePositionMs) else "--:--" }
-    }
-    val durStr = remember(isVisible, duration) {
-        if (isVisible) formatDuration(duration.coerceAtLeast(0L)) else "--:--"
+    val durStr by remember(isVisible, duration) {
+        derivedStateOf { if (isVisible) formatDuration(duration) else "--:--" }
     }
 
     Box(
@@ -1464,7 +1473,7 @@ private fun DelayedContent(
             }
         } else if (
             effectiveExpansionFraction >= appearThreshold &&
-                (!applyPlaceholderDelayOnClose || isExpanding || isExpandedOverride)
+            (!applyPlaceholderDelayOnClose || isExpanding || isExpandedOverride)
         ) {
             isDelayGateOpen = true
         }
@@ -1531,16 +1540,20 @@ private fun PlayerSongInfo(
     artist: String,
     artistId: Long,
     artists: List<Artist>,
+    albumId: Long,
+    album: String,
     expansionFractionProvider: () -> Float,
     textColor: Color,
     artistTextColor: Color,
     gradientEdgeColor: Color,
     playerViewModel: PlayerViewModel,
     onClickArtist: () -> Unit,
+    onClickAlbum: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isNavigatingToArtist by remember { mutableStateOf(false) }
+    var isNavigatingToAlbum by remember { mutableStateOf(false) }
     val resolvedArtistId by remember(artists, artistId) {
         derivedStateOf { artists.firstOrNull { it.id > 0L }?.id ?: artistId }
     }
@@ -1557,9 +1570,9 @@ private fun PlayerSongInfo(
 
     Column(
         horizontalAlignment = Alignment.Start,
-            modifier = modifier
-                .padding(vertical = 4.dp)
-                .fillMaxWidth()
+        modifier = modifier
+            .padding(vertical = 4.dp)
+            .fillMaxWidth()
             .graphicsLayer {
                 val fraction = expansionFractionProvider()
                 alpha = fraction // Or apply specific fade logic if desired
@@ -1572,13 +1585,42 @@ private fun PlayerSongInfo(
         // Let's check AutoScrollingTextOnDemand. Assuming it uses it for scrolling trigger.
         // If we want to avoid recomposition, we might need to pass the provider or just 1f if scrolling logic handles itself.
         // For now, let's pass the current value from provider for logic correctness, but ideally this component should be optimized too.
+        // Song Title - Make it clickable for album navigation
         AutoScrollingTextOnDemand(
             title,
             titleStyle,
             gradientEdgeColor,
             expansionFractionProvider,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
+                        if (isNavigatingToAlbum) return@combinedClickable
+                        coroutineScope.launch {
+                            isNavigatingToAlbum = true
+                            try {
+                                onClickAlbum()
+                            } finally {
+                                isNavigatingToAlbum = false
+                            }
+                        }
+                    },
+                    onLongClick = {
+                        if (isNavigatingToAlbum) return@combinedClickable
+                        coroutineScope.launch {
+                            isNavigatingToAlbum = true
+                            try {
+                                playerViewModel.triggerAlbumNavigationFromPlayer(albumId)
+                            } finally {
+                                isNavigatingToAlbum = false
+                            }
+                        }
+                    }
+                )
         )
+
         Spacer(modifier = Modifier.height(2.dp))
 
         AutoScrollingTextOnDemand(
@@ -1589,31 +1631,31 @@ private fun PlayerSongInfo(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {
-                    if (isNavigatingToArtist) return@combinedClickable
-                    coroutineScope.launch {
-                        isNavigatingToArtist = true
-                        try {
-                            onClickArtist()
-                        } finally {
-                            isNavigatingToArtist = false
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
+                        if (isNavigatingToArtist) return@combinedClickable
+                        coroutineScope.launch {
+                            isNavigatingToArtist = true
+                            try {
+                                onClickArtist()
+                            } finally {
+                                isNavigatingToArtist = false
+                            }
+                        }
+                    },
+                    onLongClick = {
+                        if (isNavigatingToArtist) return@combinedClickable
+                        coroutineScope.launch {
+                            isNavigatingToArtist = true
+                            try {
+                                playerViewModel.triggerArtistNavigationFromPlayer(resolvedArtistId)
+                            } finally {
+                                isNavigatingToArtist = false
+                            }
                         }
                     }
-                },
-                onLongClick = {
-                    if (isNavigatingToArtist) return@combinedClickable
-                    coroutineScope.launch {
-                        isNavigatingToArtist = true
-                        try {
-                            playerViewModel.triggerArtistNavigationFromPlayer(resolvedArtistId)
-                        } finally {
-                            isNavigatingToArtist = false
-                        }
-                    }
-                }
-            )
+                )
         )
     }
 }

@@ -724,6 +724,22 @@ class MainActivity : ComponentActivity() {
                             onOpenSidebar = { scope.launch { drawerState.open() } }
                         )
 
+                        LaunchedEffect(Unit) {
+                            // Observe artist navigation from player
+                            launch {
+                                playerViewModel.artistNavigationRequests.collect { artistId ->
+                                    navController.navigate(Screen.ArtistDetail.createRoute(artistId))
+                                }
+                            }
+
+                            // Observe album navigation from player
+                            launch {
+                                playerViewModel.albumNavigationRequests.collect { albumId ->
+                                    navController.navigate(Screen.AlbumDetail.createRoute(albumId))
+                                }
+                            }
+                        }
+
                         if (usePlayerSheetV2) {
                             UnifiedPlayerSheetV2(
                                 playerViewModel = playerViewModel,

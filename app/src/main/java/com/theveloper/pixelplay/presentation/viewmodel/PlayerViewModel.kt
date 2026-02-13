@@ -158,22 +158,6 @@ class PlayerViewModel @Inject constructor(
     val playerUiState: StateFlow<PlayerUiState> = _playerUiState.asStateFlow()
 
     val stablePlayerState: StateFlow<StablePlayerState> = playbackStateHolder.stablePlayerState
-    /**
-     * High-frequency playback position should not force global UI recomposition.
-     * Keep a dedicated position flow for real-time UI elements (seek bars, lyrics timing).
-     */
-    val currentPlaybackPosition: StateFlow<Long> = stablePlayerState
-        .map { it.currentPosition }
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
-
-    /**
-     * Infrequent player state for large screen trees that only need structural playback changes.
-     */
-    val stablePlayerStateInfrequent: StateFlow<StablePlayerState> = stablePlayerState
-        .map { it.copy(currentPosition = 0L) }
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StablePlayerState())
     val playbackHistory = listeningStatsTracker.playbackHistory
 
     // Removed: _masterAllSongs was a duplicate of libraryStateHolder.allSongs
@@ -371,9 +355,12 @@ class PlayerViewModel @Inject constructor(
 
     private val _artistNavigationRequests = MutableSharedFlow<Long>(extraBufferCapacity = 1)
     val artistNavigationRequests = _artistNavigationRequests.asSharedFlow()
+    private val _albumNavigationRequests = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+    val albumNavigationRequests = _albumNavigationRequests.asSharedFlow()
     private val _searchNavDoubleTapEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val searchNavDoubleTapEvents = _searchNavDoubleTapEvents.asSharedFlow()
     private var artistNavigationJob: Job? = null
+    private var albumNavigationJob: Job? = null
 
     val castRoutes: StateFlow<List<MediaRouter.RouteInfo>> = castStateHolder.castRoutes
     val selectedRoute: StateFlow<MediaRouter.RouteInfo?> = castStateHolder.selectedRoute
@@ -417,6 +404,12 @@ class PlayerViewModel @Inject constructor(
         lyricsStateHolder.initialize(viewModelScope, lyricsLoadCallback, playbackStateHolder.stablePlayerState)
         playbackStateHolder.initialize(viewModelScope)
         themeStateHolder.initialize(viewModelScope)
+
+        viewModelScope.launch {
+            playbackStateHolder.stablePlayerState.collect { state ->
+                _playerUiState.update { it.copy(currentPosition = state.currentPosition) }
+            }
+        }
 
         viewModelScope.launch {
             lyricsStateHolder.songUpdates.collect { update: Pair<com.theveloper.pixelplay.data.model.Song, com.theveloper.pixelplay.data.model.Lyrics?> ->
@@ -1454,6 +1447,36 @@ class PlayerViewModel @Inject constructor(
             }
 
             _artistNavigationRequests.emit(artistId)
+        }
+    }
+
+    fun triggerAlbumNavigationFromPlayer(albumId: Long) {
+        if (albumId <= 0) {
+            Log.d("AlbumDebug", "triggerAlbumNavigationFromPlayer ignored invalid albumId=$albumId")
+            return
+        }
+
+        val existingJob = albumNavigationJob
+        if (existingJob != null && existingJob.isActive) {
+            Log.d("AlbumDebug", "triggerAlbumNavigationFromPlayer ignored; navigation already in progress for albumId=$albumId")
+            return
+        }
+
+        albumNavigationJob?.cancel()
+        albumNavigationJob = viewModelScope.launch {
+            val currentSong = playbackStateHolder.stablePlayerState.value.currentSong
+            Log.d(
+                "AlbumDebug",
+                "triggerAlbumNavigationFromPlayer: albumId=$albumId, songId=${currentSong?.id}, title=${currentSong?.title}"
+            )
+            collapsePlayerSheet()
+
+            withTimeoutOrNull(900) {
+                awaitSheetState(PlayerSheetState.COLLAPSED)
+                awaitPlayerCollapse()
+            }
+
+            _albumNavigationRequests.emit(albumId)
         }
     }
 
@@ -3053,7 +3076,7 @@ class PlayerViewModel @Inject constructor(
             val songToDismiss = playbackStateHolder.stablePlayerState.value.currentSong
             val queueToDismiss = _playerUiState.value.currentPlaybackQueue
             val queueNameToDismiss = _playerUiState.value.currentQueueSourceName
-            val positionToDismiss = playbackStateHolder.stablePlayerState.value.currentPosition
+            val positionToDismiss = _playerUiState.value.currentPosition
 
             if (songToDismiss == null && queueToDismiss.isEmpty()) {
                 // Nothing to dismiss
