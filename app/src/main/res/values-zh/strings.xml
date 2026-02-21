@@ -1351,6 +1351,30 @@
     
     <string name="edit_transition_fade_out">淡出</string>
     <string name="edit_transition_fade_in">淡入</string>
+    <string name="transition_snackbar_using_global_defaults">已使用全局默认设置</string>
+    <string name="transition_snackbar_changes_saved">更改已保存</string>
+    <string name="transition_title_playlist_rules">播放列表规则</string>
+    <string name="transition_title_global_transitions">全局过渡</string>
+    <string name="transition_description_playlist">为此播放列表配置默认行为。</string>
+    <string name="transition_description_global">此配置适用于所有播放来源，除非被覆盖。</string>
+    <string name="transition_status_title">当前状态</string>
+    <string name="transition_status_global_default">全局默认</string>
+    <string name="transition_status_following_global">跟随全局</string>
+    <string name="transition_status_custom_override">自定义覆盖</string>
+    <string name="transition_status_playlist_default">播放列表默认</string>
+    <string name="transition_custom_override_title">自定义覆盖</string>
+    <string name="transition_custom_override_desc">启用后可为此播放列表设置专属规则。</string>
+    <string name="transition_style_title">过渡样式</string>
+    <string name="transition_style_subtitle">歌曲如何衔接</string>
+    <string name="transition_option_crossfade">交叉淡化</string>
+    <string name="transition_option_none">无</string>
+    <string name="transition_duration_title">过渡时长</string>
+    <string name="transition_duration_total_overlap_format">总重叠 %1$d 秒</string>
+    <string name="transition_current_song_label">当前歌曲</string>
+    <string name="transition_next_song_label">下一首歌曲</string>
+    <string name="transition_overlap_format">歌曲将重叠 %1$d 秒</string>
+    <string name="transition_curves_title">音量曲线</string>
+    <string name="transition_curves_subtitle">微调音量变化曲线</string>
 
     
     <string name="equalizer_edit_title">编辑</string>
