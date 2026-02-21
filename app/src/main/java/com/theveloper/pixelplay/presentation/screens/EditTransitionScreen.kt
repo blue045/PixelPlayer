@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -659,7 +660,7 @@ private fun TransitionCurvesSection(
             // Usamos colores terciarios para la salida (Fade Out)
             CurveSelectionColumn(
                 modifier = Modifier.weight(1f),
-                title = "Fade Out",
+                title = stringResource(R.string.edit_transition_fade_out),
                 selected = settings.curveOut,
                 onCurveSelected = onCurveOutSelected,
                 activeColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -668,7 +669,7 @@ private fun TransitionCurvesSection(
             // Usamos colores secundarios para la entrada (Fade In)
             CurveSelectionColumn(
                 modifier = Modifier.weight(1f),
-                title = "Fade In",
+                title = stringResource(R.string.edit_transition_fade_in),
                 selected = settings.curveIn,
                 onCurveSelected = onCurveInSelected,
                 activeColor = MaterialTheme.colorScheme.secondaryContainer,
