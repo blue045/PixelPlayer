@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PixelPlayer</string>
+    <string name="app_name_change_title">Alteração do nome do app</string>
+    <string name="app_name_change_message">Alteramos o nome do aplicativo de PixelPlay para PixelPlayer devido a uma questão relacionada à marca registrada. Continue curtindo!</string>
+    <string name="do_not_show_again">Não mostrar novamente</string>
+    <string name="dismiss">Fechar</string>
+    <string name="lyrics">Letras</string>
+    <string name="close_lyrics_sheet">Fechar painel de letras</string>
+    <string name="loading_lyrics">Carregando letras…</string>
+    <string name="cant_find_lyrics">Não foi possível encontrar letras para esta música.</string>
+    <string name="lyrics_provided_by">Letras fornecidas por</string>
+    <string name="lrclib_uri">https://lrclib.net/</string>
+    <string name="all_files_access_title">Permissão Especial Necessária</string>
+    <string name="all_files_access_description">Para editar os metadados das suas músicas (arquivos .mp3), o PixelPlayer precisa de uma permissão especial de acesso a todos os arquivos. Isso nos permitirá modificar as tags das suas faixas diretamente. Por favor, conceda essa permissão na próxima tela para habilitar a edição de metadados.</string>
+    <string name="grant_permission_button">Conceder permissão</string>
+    <string name="all_files_access_setting">Acesso a todos os arquivos</string>
+    <string name="lyrics_not_found">Letras não encontradas</string>
+    <string name="search_lyrics_online_prompt">Deseja buscar letras online?</string>
+    <string name="custom_search_hint">Não conseguimos encontrar letras automaticamente. Você pode editar o título ou o artista e tentar buscar manualmente.</string>
+    <string name="failed_to_search_for_lyrics">Falha ao procurar letras</string>
+    <string name="failed_to_fetch_lyrics_from_remote">Falha ao obter letras do servidor</string>
+    <string name="lyrics_fetch_timeout">Tempo de conexão esgotado. Verifique sua conexão com a internet.</string>
+    <string name="lyrics_network_error">Erro de rede. Verifique sua conexão com a internet.</string>
+    <string name="lyrics_server_error">Erro no servidor (código %d). Por favor, tente novamente mais tarde.</string>
+    <string name="found_n_matches_format">Encontrado(s) %d resultado(s)</string>
+    <string name="searched_for_x_format">Pesquisa por "%s"</string>
+    <string name="search">Pesquisar</string>
+    <string name="searching_lyrics">Buscando letras…</string>
+    <string name="lyrics_embedded_already_available">Letras incorporadas já encontradas. Busca online ignorada.</string>
+    <string name="fetch_lyrics_show_options_title">Exibir opções de letra</string>
+    <string name="fetch_lyrics_show_options_subtitle">Abrir sempre o seletor em vez de aplicar automaticamente a primeira correspondência</string>
+    <string name="error">Erro</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancelar</string>
+    <string name="import_file">Importar</string>
+
+    <!-- Sync/Progress strings -->
+    <string name="sync_scanning">Escaneando arquivos de música…</string>
+    <string name="sync_processing">Processando arquivos…</string>
+    <string name="sync_files_progress">%1$d de %2$d arquivos</string>
+    <string name="sync_in_progress">Sincronizando biblioteca…</string>
+    <string name="sync_complete">Sincronização concluída</string>
+    <string name="sync_pending">Aguardando…</string>
+    <string name="syncing_library">Sincronizando biblioteca…</string>
+    <string name="unknown_song_title">Faixa desconhecida</string>
+    <string name="unknown_artist">Artista desconhecido</string>
+    <string name="unknown_album">Álbum desconhecido</string>
+    <string name="artist_picker_title">Escolher artista</string>
+    <string name="external_queue_label">Reprodução rápida</string>
+    <string name="external_playback_error">Não foi possível abrir esse arquivo de áudio.</string>
+    <string name="open_full_player">Abrir player completo</string>
+    <string name="close_external_player">Fechar player flutuante</string>
+    <string name="previous_track">Faixa anterior</string>
+    <string name="next_track">Próxima faixa</string>
+    <string name="pause_playback">Pausar reprodução</string>
+    <string name="play_playback">Reproduzir</string>
+    <string name="playlist_not_found">Playlist não encontrada.</string>
+    <string name="save_lyrics_as_lrc">Salvar letras como .lrc</string>
+    <string name="save_lyrics_dialog_title">Salvar letras</string>
+    <string name="save_lyrics_dialog_message">Escolha qual versão salvar:</string>
+    <string name="save_synced_lyrics">Sincronizada (com timestamps)</string>
+    <string name="save_plain_lyrics">Simples (apenas texto)</string>
+    <string name="lyrics_saved_successfully">Letras salvas com sucesso</string>
+    <string name="lyrics_save_failed">Falha ao salvar letras</string>
+    <string name="no_lyrics_to_save">Nenhuma letra disponível para salvar</string>
+    <string name="reset_imported_lyrics">Redefinir letras importadas</string>
+    <string name="lyrics_sync_offset">Offset de sincronização</string>
+    <string name="lyrics_sync_offset_format">%+.1fs</string>
+    <string name="lyrics_sync_offset_reset">Redefinir</string>
+    <string name="lyrics_earlier">Mais cedo</string>
+    <string name="lyrics_later">Mais tarde</string>
+
+    <!-- AI Playlist -->
+    <string name="ai_error_api_key">Por favor, configure sua chave da API Gemini em Ajustes.</string>
+    <string name="ai_error_generic">Erro de IA: %s</string>
+    <string name="ai_no_songs_found">A IA não encontrou nenhuma música para o seu pedido.</string>
+    <string name="ai_prompt_empty">Escreva uma ideia para seu Daily Mix</string>
+    <string name="ai_daily_mix_updated">Daily Mix atualizado com IA</string>
+    <string name="ai_no_songs_for_mix">A IA não encontrou músicas para este mix</string>
+
+    <!-- Launcher Shortcuts -->
+    <string name="shortcut_shuffle_short">Embaralhar</string>
+    <string name="shortcut_shuffle_long">Embaralhar todas as músicas</string>
+    <string name="shortcut_playlist_short">Playlist</string>
+    <string name="shortcut_playlist_long">Última playlist tocada</string>
+
+    <!-- Quick Settings Tiles -->
+    <string name="tile_shuffle_all">Embaralhar tudo</string>
+    <string name="tile_last_playlist">Última playlist</string>
+
+    <!-- Errors -->
+    <string name="invalid_album_id">ID de álbum inválido</string>
+    <string name="album_id_not_found">ID de álbum não encontrado</string>
+    <string name="error_loading_album">Erro ao carregar dados do álbum: %s</string>
+    <string name="album_not_found">Álbum não encontrado</string>
+    <string name="could_not_update">Não foi possível atualizar: %s</string>
+    <string name="invalid_artist_id">ID de artista inválido</string>
+    <string name="artist_id_not_found">ID de artista não encontrado</string>
+    <string name="error_loading_artist">Erro ao carregar dados do artista: %s</string>
+    <string name="could_not_find_artist">Não foi possível localizar o artista</string>
+    <string name="no_valid_songs">Nenhuma música válida encontrada para reproduzir</string>
+
+    <!-- Widgets -->
+    <string name="glance_widget_description">Widget responsivo que se adapta ao seu tamanho</string>
+    <string name="widget_bar_4x1_desc">Barra de player compacta</string>
+    <string name="widget_control_4x2_desc">Controles completos com embaralhar e repetir</string>
+    <string name="widget_grid_2x2_desc">Player quadrado minimalista</string>
+</resources>
