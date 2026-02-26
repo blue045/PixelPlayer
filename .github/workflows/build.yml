@@ -13,6 +13,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -23,8 +24,7 @@ jobs:
       - name: Build KMP Framework for iOS
         run: |
           chmod +x ./gradlew
-          # Skip Android tasks to avoid missing SDK errors
-          ./gradlew :shared:assembleIosArm64 -x :app:preBuild -x :wear:preBuild -x :baselineprofile:preBuild
+          ./gradlew :shared:assembleIosArm64 -x :app:preBuild -x :wear:preBuild -x :baselineprofile:preBuild --no-daemon
 
       - name: Create project.yml for XcodeGen
         run: |
