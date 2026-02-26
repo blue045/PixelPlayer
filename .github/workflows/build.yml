@@ -1,5 +1,5 @@
 name: Build PixelPlayer IPA
-on: [push]
+on: [push, workflow_dispatch]
 
 jobs:
   build:
@@ -13,10 +13,11 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: current
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -24,9 +25,9 @@ jobs:
       - name: Build KMP Framework for iOS
         run: |
           chmod +x ./gradlew
-          ./gradlew :shared:assembleIosArm64 -x :app:preBuild -x :wear:preBuild -x :baselineprofile:preBuild --no-daemon
+          ./gradlew :shared:assembleIosArm64 -x test --no-daemon
 
-      - name: Create project.yml for XcodeGen
+      - name: Create project.yml
         run: |
           cat > project.yml << 'EOF'
           name: PixelPlayer
@@ -47,41 +48,30 @@ jobs:
                 path: iosApp/iosApp/Info.plist
                 properties:
                   UILaunchScreen: {}
-                  UISupportedInterfaceOrientations:
-                    - UIInterfaceOrientationPortrait
           EOF
 
       - name: Generate .xcodeproj
         run: xcodegen generate
 
-      - name: Build iOS App (No Signing)
+      - name: Build and Archive
         run: |
-          xcodebuild \
+          xcodebuild archive \
             -project PixelPlayer.xcodeproj \
             -scheme PixelPlayer \
             -configuration Release \
             -sdk iphoneos \
             -archivePath $PWD/build/PixelPlayer.xcarchive \
-            archive \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_ALLOWED=NO
 
-      - name: Export IPA (Unsigned)
+      - name: Package IPA
         run: |
-          mkdir -p build/ipa
-          if [ -d "build/PixelPlayer.xcarchive/Products/Applications/PixelPlayer.app" ]; then
-            cp -r build/PixelPlayer.xcarchive/Products/Applications/PixelPlayer.app build/ipa/
-            cd build/ipa
-            mkdir Payload
-            mv PixelPlayer.app Payload/
-            zip -r ../PixelPlayer_unsigned.ipa Payload
-            cd ../..
-          else
-            echo "Build failed: App directory not found"
-            exit 1
-          fi
+          mkdir -p build/Payload
+          cp -r build/PixelPlayer.xcarchive/Products/Applications/PixelPlayer.app build/Payload/
+          cd build
+          zip -r PixelPlayer_unsigned.ipa Payload
+          cd ..
 
-      - name: Upload Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PixelPlayer-IPA
