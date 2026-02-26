@@ -23,7 +23,8 @@ jobs:
       - name: Build KMP Framework for iOS
         run: |
           chmod +x ./gradlew
-          ./gradlew :shared:assembleIosArm64
+          # Skip Android tasks to avoid missing SDK errors
+          ./gradlew :shared:assembleIosArm64 -x :app:preBuild -x :wear:preBuild -x :baselineprofile:preBuild
 
       - name: Create project.yml for XcodeGen
         run: |
@@ -68,12 +69,17 @@ jobs:
       - name: Export IPA (Unsigned)
         run: |
           mkdir -p build/ipa
-          cp -r build/PixelPlayer.xcarchive/Products/Applications/PixelPlayer.app build/ipa/
-          cd build/ipa
-          mkdir Payload
-          mv PixelPlayer.app Payload/
-          zip -r ../PixelPlayer_unsigned.ipa Payload
-          cd ../..
+          if [ -d "build/PixelPlayer.xcarchive/Products/Applications/PixelPlayer.app" ]; then
+            cp -r build/PixelPlayer.xcarchive/Products/Applications/PixelPlayer.app build/ipa/
+            cd build/ipa
+            mkdir Payload
+            mv PixelPlayer.app Payload/
+            zip -r ../PixelPlayer_unsigned.ipa Payload
+            cd ../..
+          else
+            echo "Build failed: App directory not found"
+            exit 1
+          fi
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
