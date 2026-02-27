@@ -1,5 +1,8 @@
-name: Build PixelPlayer IPA
-on: [push, workflow_dispatch]
+name: Build PixelPlayer iOS
+on: 
+  push:
+    branches: [ master ]
+  workflow_dispatch:
 
 jobs:
   build:
