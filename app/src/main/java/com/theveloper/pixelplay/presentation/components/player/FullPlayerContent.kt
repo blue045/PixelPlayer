@@ -71,6 +71,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -91,6 +92,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.foundation.shape.CircleShape
@@ -884,12 +887,14 @@ private fun FullPlayerAlbumCoverSection(
             .fillMaxWidth()
             .padding(vertical = 8.dp)
     ) {
-        val carouselHeight = when (carouselStyle) {
+        val desiredHeight = when (carouselStyle) {
             CarouselStyle.NO_PEEK -> maxWidth
             CarouselStyle.ONE_PEEK -> maxWidth * 0.8f
             CarouselStyle.TWO_PEEK -> maxWidth * 0.6f
             else -> maxWidth * 0.8f
         }
+        // Cap album art height to available space so controls aren't pushed off-screen
+        val carouselHeight = minOf(desiredHeight, maxHeight)
 
         DelayedContent(
             shouldDelay = shouldDelay,
@@ -997,6 +1002,7 @@ private fun FullPlayerControlsSection(
             }
         }
     ) {
+        val adaptiveSizes = rememberAdaptivePlaybackControlSizes()
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -1007,7 +1013,9 @@ private fun FullPlayerControlsSection(
                 onPrevious = onPrevious,
                 onPlayPause = onPlayPause,
                 onNext = onNext,
-                height = 80.dp,
+                height = adaptiveSizes.height,
+                playPauseIconSize = adaptiveSizes.playPauseIconSize,
+                iconSize = adaptiveSizes.iconSize,
                 pressAnimationSpec = stableControlAnimationSpec,
                 releaseDelay = 220L,
                 colorOtherButtons = playerSecondaryAccentColor,
@@ -1169,7 +1177,9 @@ private fun FullPlayerPortraitContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceAround
     ) {
-        albumCoverSection(Modifier)
+        // Album art fills remaining space after metadata + controls get their minimum,
+        // preventing controls from being squished on small screens
+        albumCoverSection(Modifier.weight(1f, fill = false))
 
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -1620,9 +1630,24 @@ private fun EfficientSlider(
     isPlaying: Boolean,
     trackEdgePadding: Dp
 ) {
+    val haptics = LocalHapticFeedback.current
+    val currentOnValueChange = rememberUpdatedState(onValueChange)
+    val currentHaptics = rememberUpdatedState(haptics)
+    val lastHapticStep = remember { intArrayOf(-1) }
+    val onValueChangeWithHaptics = remember {
+        { newValue: Float ->
+            val quantized = (newValue.coerceIn(0f, 1f) * 20f).toInt()
+            if (quantized != lastHapticStep[0]) {
+                lastHapticStep[0] = quantized
+                currentHaptics.value.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
+            currentOnValueChange.value(newValue)
+        }
+    }
+
     WavySliderExpressive(
         value = valueState.value,
-        onValueChange = onValueChange,
+        onValueChange = onValueChangeWithHaptics,
         onValueChangeFinished = onValueChangeFinished,
         interactionSource = interactionSource,
         activeTrackColor = activeTrackColor,
