@@ -1,6 +1,5 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -51,7 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,8 +70,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
+import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
-import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
@@ -86,12 +85,7 @@ fun ExperimentalSettingsScreen(
     onNavigationIconClick: () -> Unit,
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val uiState by settingsViewModel.uiState.collectAsState()
-    val playerSheetState by playerViewModel.sheetState.collectAsState()
-
-    BackHandler(enabled = playerSheetState == PlayerSheetState.EXPANDED) {
-        playerViewModel.collapsePlayerSheet()
-    }
+    val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
 
     val transitionState = remember { MutableTransitionState(false) }
     LaunchedEffect(true) { transitionState.targetState = true }
@@ -179,7 +173,7 @@ fun ExperimentalSettingsScreen(
 
         LazyColumn(
             state = lazyListState,
-            contentPadding = PaddingValues(top = currentTopBarHeightDp),
+            contentPadding = PaddingValues(top = currentTopBarHeightDp + 8.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             item(key = "player_ui_tweaks_section") {
@@ -222,6 +216,20 @@ fun ExperimentalSettingsScreen(
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Rounded.ViewCarousel,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                            )
+
+                            SwitchSettingItem(
+                                title = "Animated Lyrics (High-end devices)",
+                                subtitle = "Uses spring animations and visual effects for lyrics. May cause frame drops on low-end devices.",
+                                checked = uiState.useAnimatedLyrics,
+                                onCheckedChange = settingsViewModel::setUseAnimatedLyrics,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.MusicNote,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.secondary
                                     )
@@ -699,11 +707,11 @@ fun ExperimentalSettingsScreen(
             }
         }
 
-        SettingsTopBar(
+        CollapsibleCommonTopBar(
+            title = "Experimental",
             collapseFraction = collapseFraction,
             headerHeight = currentTopBarHeightDp,
-            onBackPressed = onNavigationIconClick,
-            title = "Experimental"
+            onBackClick = onNavigationIconClick
         )
     }
 }

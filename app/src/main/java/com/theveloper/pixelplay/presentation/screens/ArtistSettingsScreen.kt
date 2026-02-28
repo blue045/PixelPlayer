@@ -1,5 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.navigation.navigateSafely
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -63,7 +65,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,6 +89,7 @@ import androidx.compose.ui.unit.lerp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
 import com.theveloper.pixelplay.presentation.components.ExpressiveTopBarContent
 import com.theveloper.pixelplay.presentation.viewmodel.ArtistSettingsViewModel
 import kotlinx.coroutines.launch
@@ -98,7 +101,7 @@ fun ArtistSettingsScreen(
     navController: NavController,
     viewModel: ArtistSettingsViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
@@ -168,7 +171,7 @@ fun ArtistSettingsScreen(
         LazyColumn(
             state = lazyListState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = currentTopBarHeightDp, bottom = 100.dp)
+            contentPadding = PaddingValues(top = currentTopBarHeightDp + 8.dp, bottom = 100.dp)
         ) {
             // Rescan Required Warning
             item {
@@ -216,7 +219,7 @@ fun ArtistSettingsScreen(
                                 )
                             },
                             onClick = {
-                                navController.navigate("delimiter_config")
+                                navController.navigateSafely("delimiter_config")
                             }
                         )
                     }
@@ -272,57 +275,17 @@ fun ArtistSettingsScreen(
                 )
             }
         }
-        SettingsTopBar(
+        CollapsibleCommonTopBar(
+            title = "Artists",
             collapseFraction = collapseFraction,
             headerHeight = currentTopBarHeightDp,
-            onBackPressed = { navController.popBackStack() },
-            title = "Artists"
+            onBackClick = { navController.popBackStack() },
+            expandedTitleStartPadding = 20.dp
         )
     }
 }
 
-@Composable
-private fun ArtistSettingsTopBar(
-    collapseFraction: Float,
-    headerHeight: Dp,
-    onBackPressed: () -> Unit,
-    title: String,
-    expandedTitleStartPadding: Dp = 0.dp
-) {
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val titleStartPadding = lerp(expandedTitleStartPadding, 0.dp, collapseFraction.coerceIn(0f, 1f))
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(headerHeight)
-            .background(surfaceColor.copy(alpha = collapseFraction))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        ) {
-            FilledIconButton(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 12.dp, top = 4.dp),
-                onClick = onBackPressed,
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-            ) {
-                Icon(painterResource(R.drawable.rounded_arrow_back_24), contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
-            }
-
-            ExpressiveTopBarContent(
-                title = title,
-                collapseFraction = collapseFraction,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = titleStartPadding, end = 0.dp)
-            )
-        }
-    }
-}
 
 @Composable
 private fun RescanRequiredBanner(

@@ -1,8 +1,9 @@
 package com.theveloper.pixelplay.presentation.screens
 
+import com.theveloper.pixelplay.presentation.navigation.navigateSafely
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
@@ -72,7 +73,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -112,7 +113,6 @@ import com.theveloper.pixelplay.presentation.components.ExpressiveScrollBar
 import com.theveloper.pixelplay.presentation.components.SmartImage
 import com.theveloper.pixelplay.presentation.components.SongInfoBottomSheet
 import com.theveloper.pixelplay.presentation.navigation.Screen
-import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel.Companion.FOLDER_PLAYLIST_PREFIX
@@ -143,9 +143,8 @@ fun PlaylistDetailScreen(
     playlistViewModel: PlaylistViewModel = hiltViewModel(),
     navController: NavController
 ) {
-    val uiState by playlistViewModel.uiState.collectAsState()
-    val playerStableState by playerViewModel.stablePlayerStateInfrequent.collectAsState()
-    val playerSheetState by playerViewModel.sheetState.collectAsState()
+    val uiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
+    val playerStableState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val currentPlaylist = uiState.currentPlaylistDetails
     val isFolderPlaylist = currentPlaylist?.id?.startsWith(FOLDER_PLAYLIST_PREFIX) == true
@@ -153,10 +152,6 @@ fun PlaylistDetailScreen(
 
     LaunchedEffect(playlistId) {
         playlistViewModel.loadPlaylistDetails(playlistId)
-    }
-
-    BackHandler(enabled = playerSheetState == PlayerSheetState.EXPANDED) {
-        playerViewModel.collapsePlayerSheet()
     }
 
     var showAddSongsSheet by remember { mutableStateOf(false) }
@@ -178,8 +173,8 @@ fun PlaylistDetailScreen(
         }
     }
 
-    val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsState()
-    val favoriteIds by playerViewModel.favoriteSongIds.collectAsState() // Reintroducir favoriteIds aquí
+    val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
+    val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle() // Reintroducir favoriteIds aquí
     val stableOnMoreOptionsClick: (Song) -> Unit = remember {
         { song ->
             playerViewModel.selectSongForInfo(song)
@@ -731,12 +726,12 @@ fun PlaylistDetailScreen(
                     label = "Set default transition",
                     onClick = {
                         showPlaylistOptionsSheet = false
-                        navController.navigate(Screen.EditTransition.createRoute(playlistId))
+                        navController.navigateSafely(Screen.EditTransition.createRoute(playlistId))
                     }
                 )
                 PlaylistActionItem(
                     icon = painterResource(R.drawable.rounded_attach_file_24),
-                    label = "Export M3U",
+                    label = "Export Playlist",
                     onClick = {
                         showPlaylistOptionsSheet = false
                         m3uExportLauncher.launch("${currentPlaylist?.name ?: "playlist"}.m3u")
@@ -851,11 +846,11 @@ fun PlaylistDetailScreen(
                 },
                 onDeleteFromDevice = playerViewModel::deleteFromDevice,
                 onNavigateToAlbum = {
-                    navController.navigate(Screen.AlbumDetail.createRoute(currentSong.albumId))
+                    navController.navigateSafely(Screen.AlbumDetail.createRoute(currentSong.albumId))
                     showSongInfoBottomSheet = false
                 },
                 onNavigateToArtist = {
-                    navController.navigate(Screen.ArtistDetail.createRoute(currentSong.artistId))
+                    navController.navigateSafely(Screen.ArtistDetail.createRoute(currentSong.artistId))
                     showSongInfoBottomSheet = false
                 },
                 onEditSong = { newTitle, newArtist, newAlbum, newGenre, newLyrics, newTrackNumber, coverArtUpdate ->
@@ -878,7 +873,7 @@ fun PlaylistDetailScreen(
                 }
             )
             if (showPlaylistBottomSheet) {
-                val playlistUiState by playlistViewModel.uiState.collectAsState()
+                val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
 
                 PlaylistBottomSheet(
                     playlistUiState = playlistUiState,
@@ -894,7 +889,7 @@ fun PlaylistDetailScreen(
         }
     }
 
-    val isSortSheetVisible by playerViewModel.isSortingSheetVisible.collectAsState()
+    val isSortSheetVisible by playerViewModel.isSortingSheetVisible.collectAsStateWithLifecycle()
 
     if (isSortSheetVisible) {
         // Check if playlist is in Manual mode (which corresponds to Default Order)
@@ -903,7 +898,7 @@ fun PlaylistDetailScreen(
         // If in Manual mode, show SongDefaultOrder as selected; otherwise use the stored sort option
         val currentSortOption = if (isManualMode) {
             SortOption.SongDefaultOrder
-        } else if ((isFolderPlaylist || currentPlaylist != null) && rawOption != null) {
+        } else if (currentPlaylist != null) {
             rawOption
         } else {
             SortOption.SongTitleAZ

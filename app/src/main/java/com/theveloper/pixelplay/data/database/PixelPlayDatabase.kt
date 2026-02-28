@@ -20,9 +20,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoritesEntity::class,
         LyricsEntity::class,
         NeteaseSongEntity::class,
-        NeteasePlaylistEntity::class
+        NeteasePlaylistEntity::class,
+        GDriveSongEntity::class,
+        GDriveFolderEntity::class
     ],
-    version = 21, // Incremented for Netease Cloud Music tables
+    version = 24, // Incremented for query performance indexes
 
     exportSchema = false
 )
@@ -36,6 +38,7 @@ abstract class PixelPlayDatabase : RoomDatabase() {
     abstract fun favoritesDao(): FavoritesDao
     abstract fun lyricsDao(): LyricsDao
     abstract fun neteaseDao(): NeteaseDao
+    abstract fun gdriveDao(): GDriveDao
 
     companion object {
         // Gap-bridging no-op migrations for missing version ranges.
@@ -395,6 +398,65 @@ abstract class PixelPlayDatabase : RoomDatabase() {
                         last_sync_time INTEGER NOT NULL
                     )
                 """.trimIndent())
+            }
+        }
+
+        /**
+         * Add Google Drive tables.
+         */
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS gdrive_songs (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        drive_file_id TEXT NOT NULL,
+                        folder_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        artist TEXT NOT NULL,
+                        album TEXT NOT NULL,
+                        album_id INTEGER NOT NULL,
+                        duration INTEGER NOT NULL,
+                        album_art_url TEXT,
+                        mime_type TEXT NOT NULL,
+                        bitrate INTEGER,
+                        file_size INTEGER NOT NULL,
+                        date_added INTEGER NOT NULL,
+                        date_modified INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS gdrive_folders (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        song_count INTEGER NOT NULL DEFAULT 0,
+                        last_sync_time INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+            }
+        }
+
+        /**
+         * Add custom_image_uri column to artists table.
+         * Allows users to associate a custom image with each artist.
+         * Nullable with DEFAULT NULL so this migration is safe and additive.
+         */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE artists ADD COLUMN custom_image_uri TEXT DEFAULT NULL")
+            }
+        }
+
+        /**
+         * Add missing indexes for frequently filtered and sorted queries.
+         */
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_songs_content_uri_string ON songs(content_uri_string)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_songs_date_added ON songs(date_added)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_songs_duration ON songs(duration)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_favorites_timestamp ON favorites(timestamp)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_song_engagements_play_count ON song_engagements(play_count)")
             }
         }
     }

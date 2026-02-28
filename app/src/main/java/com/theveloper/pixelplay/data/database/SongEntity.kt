@@ -18,7 +18,10 @@ import com.theveloper.pixelplay.utils.normalizeMetadataTextOrEmpty
         Index(value = ["artist_id"], unique = false),
         Index(value = ["artist_name"], unique = false), // Nuevo índice para búsquedas por nombre de artista
         Index(value = ["genre"], unique = false),
-        Index(value = ["parent_directory_path"], unique = false) // Índice para filtrado por directorio
+        Index(value = ["parent_directory_path"], unique = false), // Índice para filtrado por directorio
+        Index(value = ["content_uri_string"], unique = false),
+        Index(value = ["date_added"], unique = false),
+        Index(value = ["duration"], unique = false)
     ],
     foreignKeys = [
         ForeignKey(
@@ -93,6 +96,9 @@ fun SongEntity.toSong(): Song {
         neteaseId = if (this.contentUriString.startsWith("netease://")) {
             this.contentUriString.removePrefix("netease://").toLongOrNull()
         } else null,
+        gdriveFileId = if (this.contentUriString.startsWith("gdrive://")) {
+            this.contentUriString.removePrefix("gdrive://")
+        } else null,
         mimeType = this.mimeType,
         bitrate = this.bitrate,
         sampleRate = this.sampleRate
@@ -141,6 +147,9 @@ fun SongEntity.toSongWithArtistRefs(artists: List<ArtistEntity>, crossRefs: List
         } else null,
         neteaseId = if (this.contentUriString.startsWith("netease://")) {
             this.contentUriString.removePrefix("netease://").toLongOrNull()
+        } else null,
+        gdriveFileId = if (this.contentUriString.startsWith("gdrive://")) {
+            this.contentUriString.removePrefix("gdrive://")
         } else null,
         mimeType = this.mimeType,
         bitrate = this.bitrate,

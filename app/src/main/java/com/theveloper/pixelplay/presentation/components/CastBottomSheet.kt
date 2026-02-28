@@ -75,7 +75,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -145,20 +145,20 @@ fun CastBottomSheet(
     onDismiss: () -> Unit,
     onExpansionChanged: (Float) -> Unit = {}
 ) {
-    val routes by playerViewModel.castRoutes.collectAsState()
-    val selectedRoute by playerViewModel.selectedRoute.collectAsState()
-    val routeVolume by playerViewModel.routeVolume.collectAsState()
-    val isRefreshing by playerViewModel.isRefreshingRoutes.collectAsState()
-    val isWifiEnabled by playerViewModel.isWifiEnabled.collectAsState()
-    val isWifiRadioOn by playerViewModel.isWifiRadioOn.collectAsState()
-    val wifiName by playerViewModel.wifiName.collectAsState()
-    val isBluetoothEnabled by playerViewModel.isBluetoothEnabled.collectAsState()
-    val bluetoothName by playerViewModel.bluetoothName.collectAsState()
-    val bluetoothAudioDevices by playerViewModel.bluetoothAudioDevices.collectAsState()
-    val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsState()
-    val isCastConnecting by playerViewModel.isCastConnecting.collectAsState()
-    val trackVolume by playerViewModel.trackVolume.collectAsState()
-    val isPlaying = playerViewModel.stablePlayerStateInfrequent.collectAsState().value.isPlaying
+    val routes by playerViewModel.castRoutes.collectAsStateWithLifecycle()
+    val selectedRoute by playerViewModel.selectedRoute.collectAsStateWithLifecycle()
+    val routeVolume by playerViewModel.routeVolume.collectAsStateWithLifecycle()
+    val isRefreshing by playerViewModel.isRefreshingRoutes.collectAsStateWithLifecycle()
+    val isWifiEnabled by playerViewModel.isWifiEnabled.collectAsStateWithLifecycle()
+    val isWifiRadioOn by playerViewModel.isWifiRadioOn.collectAsStateWithLifecycle()
+    val wifiName by playerViewModel.wifiName.collectAsStateWithLifecycle()
+    val isBluetoothEnabled by playerViewModel.isBluetoothEnabled.collectAsStateWithLifecycle()
+    val bluetoothName by playerViewModel.bluetoothName.collectAsStateWithLifecycle()
+    val bluetoothAudioDevices by playerViewModel.bluetoothAudioDevices.collectAsStateWithLifecycle()
+    val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
+    val isCastConnecting by playerViewModel.isCastConnecting.collectAsStateWithLifecycle()
+    val trackVolume by playerViewModel.trackVolume.collectAsStateWithLifecycle()
+    val isPlaying = playerViewModel.stablePlayerState.collectAsStateWithLifecycle().value.isPlaying
     val context = LocalContext.current
 
     val requiredPermissions = remember {
@@ -198,6 +198,14 @@ fun CastBottomSheet(
     } else {
         emptyList()
     }
+    val bluetoothDeviceNames = bluetoothAudioDevices
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+    val activeBluetoothName = bluetoothName
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && it in bluetoothDeviceNames }
+
     val devices = buildList {
         if (isWifiEnabled) {
             addAll(
@@ -229,12 +237,8 @@ fun CastBottomSheet(
         }
 
         if (isBluetoothEnabled) {
-            val bluetoothNames = (bluetoothAudioDevices + listOfNotNull(bluetoothName))
-                .filter { it.isNotEmpty() }
-                .distinct()
-
-            bluetoothNames.forEach { name ->
-                val isConnected = name == bluetoothName
+            bluetoothDeviceNames.forEach { name ->
+                val isConnected = name == activeBluetoothName
                 add(
                     CastDeviceUi(
                         id = "bluetooth_$name",
@@ -257,13 +261,14 @@ fun CastBottomSheet(
         }
     }
 
-    val activeDevice = if (isRemoteSession && activeRoute != null) {
+    val activeDevice = if (isRemoteSession) {
+        val remoteRoute = checkNotNull(activeRoute)
         ActiveDeviceUi(
-            id = activeRoute.id,
-            title = activeRoute.name,
+            id = remoteRoute.id,
+            title = remoteRoute.name,
             subtitle = "Casting session",
             isRemote = true,
-            icon = when (activeRoute.deviceType) {
+            icon = when (remoteRoute.deviceType) {
                 MediaRouter.RouteInfo.DEVICE_TYPE_TV -> Icons.Rounded.Tv
                 MediaRouter.RouteInfo.DEVICE_TYPE_REMOTE_SPEAKER, MediaRouter.RouteInfo.DEVICE_TYPE_BUILTIN_SPEAKER -> Icons.Rounded.Speaker
                 MediaRouter.RouteInfo.DEVICE_TYPE_BLUETOOTH_A2DP -> Icons.Rounded.Bluetooth
@@ -271,14 +276,14 @@ fun CastBottomSheet(
             },
             isConnecting = isCastConnecting,
             volume = routeVolume.toFloat().coerceAtLeast(0f),
-            volumeRange = 0f..activeRoute.volumeMax.toFloat().coerceAtLeast(1f),
+            volumeRange = 0f..remoteRoute.volumeMax.toFloat().coerceAtLeast(1f),
             connectionLabel = if (isCastConnecting) "Connecting" else "Connected"
         )
     } else {
-        val isBluetoothAudio = isBluetoothEnabled && !bluetoothName.isNullOrEmpty()
+        val isBluetoothAudio = isBluetoothEnabled && !activeBluetoothName.isNullOrEmpty()
         ActiveDeviceUi(
             id = "phone",
-            title = if (isBluetoothAudio) bluetoothName!! else "This phone",
+            title = if (isBluetoothAudio) activeBluetoothName!! else "This phone",
             subtitle = if (isBluetoothAudio) "Bluetooth audio" else "Local playback",
             isRemote = false,
             icon = if (isBluetoothAudio) Icons.Rounded.Bluetooth else Icons.Rounded.Headphones,
@@ -298,7 +303,7 @@ fun CastBottomSheet(
         devices = devices,
         activeDevice = activeDevice,
         isBluetoothEnabled = isBluetoothEnabled,
-        bluetoothName = bluetoothName
+        bluetoothName = activeBluetoothName
     )
 
     CastSheetContainer(

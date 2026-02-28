@@ -12,7 +12,7 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,6 +85,7 @@ object LyricsUtils {
                 if (text.contains(LRC_WORD_TAG_REGEX)) {
                     val words = mutableListOf<SyncedWord>()
                     val parts = text.split(LRC_WORD_SPLIT_REGEX)
+                    val displayText = LRC_WORD_TAG_REGEX.replace(text, "")
 
                     for (part in parts) {
                         if (part.isEmpty()) continue
@@ -94,21 +95,33 @@ object LyricsUtils {
                             val wordSeconds = wordMatcher.group(2)?.toLong() ?: 0
                             val wordFraction = wordMatcher.group(3)?.toLong() ?: 0
                             val wordText = stripFormatCharacters(wordMatcher.group(4) ?: "")
+                            val timedWordText = wordText
+                                .substringBefore('\n')
+                                .substringBefore('\r')
+                                .substringBefore("\\n")
+                                .substringBefore("\\r")
                             val wordMillis = if (wordMatcher.group(3)?.length == 2) wordFraction * 10 else wordFraction
                             val wordTimestamp = wordMinutes * 60 * 1000 + wordSeconds * 1000 + wordMillis
-                            words.add(SyncedWord(wordTimestamp.toInt(), wordText))
+                            if (timedWordText.isNotEmpty()) {
+                                words.add(SyncedWord(wordTimestamp.toInt(), timedWordText))
+                            }
                         } else {
-                            // This is untagged text at the beginning of the line
-                            val lastTime = words.lastOrNull()?.time ?: lineTimestamp.toInt()
-                            words.add(SyncedWord(lastTime, part))
+                            // Preserve only leading untagged text as a timed word.
+                            // Trailing untagged chunks (e.g. inline translations) should remain visible in line text
+                            // but must not steal word highlight timing.
+                            if (words.isEmpty()) {
+                                val leading = stripFormatCharacters(part)
+                                if (leading.isNotEmpty()) {
+                                    words.add(SyncedWord(lineTimestamp.toInt(), leading))
+                                }
+                            }
                         }
                     }
 
                     if (words.isNotEmpty()) {
-                        val fullLineText = words.joinToString("") { it.word }
-                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), fullLineText, words))
+                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), displayText, words))
                     } else {
-                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), text))
+                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), displayText))
                     }
                 } else {
                     syncedLines.add(SyncedLine(lineTimestamp.toInt(), text))
@@ -290,7 +303,7 @@ fun BubblesLine(
     nextTime: Int,
     modifier: Modifier = Modifier,
 ) {
-    val position by positionFlow.collectAsState(initial = 0L)
+    val position by positionFlow.collectAsStateWithLifecycle(initialValue = 0L)
     val isCurrent = position in time until nextTime
     val transition = rememberInfiniteTransition(label = "bubbles_transition")
 

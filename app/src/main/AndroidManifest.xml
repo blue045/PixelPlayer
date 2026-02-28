@@ -45,12 +45,17 @@
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.PixelPlay"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.theveloper.pixelplay.action.OPEN_PLAYER" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <meta-data
                 android:name="android.app.shortcuts"
@@ -67,6 +72,12 @@
             android:name=".presentation.netease.auth.NeteaseLoginActivity"
             android:exported="false"
             android:label="Netease Login"
+            android:theme="@style/Theme.PixelPlay" />
+
+        <activity
+            android:name=".presentation.gdrive.auth.GDriveLoginActivity"
+            android:exported="false"
+            android:label="Google Drive Login"
             android:theme="@style/Theme.PixelPlay" />
 
 
@@ -103,7 +114,7 @@
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />
-                <action android:name="androidx.media3.session.MediaSessionService"/>
+                <action android:name="androidx.media3.session.MediaLibraryService"/>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.APP_MUSIC" />
@@ -123,6 +134,39 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/pixelplay_glance_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".ui.glancewidget.BarWidget4x1Receiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/bar_widget_4x1_info" />
+        </receiver>
+
+        <receiver
+            android:name=".ui.glancewidget.ControlWidget4x2Receiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/control_widget_4x2_info" />
+        </receiver>
+
+        <receiver
+            android:name=".ui.glancewidget.GridWidget2x2Receiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/grid_widget_2x2_info" />
         </receiver>
 
         <receiver android:name=".data.service.SleepTimerReceiver" android:exported="false" />
@@ -174,6 +218,59 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Wear OS Data Layer: receives playback/volume commands from the watch -->
+        <service
+            android:name=".data.service.wear.WearCommandReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/playback_command" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/volume_command" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/browse_request" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/transfer_request" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/transfer_cancel" />
+            </intent-filter>
+        </service>
+
+        <!-- Quick Settings Tiles -->
+        <service
+            android:name=".data.service.tile.ShuffleAllTileService"
+            android:exported="true"
+            android:label="@string/tile_shuffle_all"
+            android:icon="@drawable/ic_shortcut_shuffle"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".data.service.tile.LastPlaylistTileService"
+            android:exported="true"
+            android:label="@string/tile_last_playlist"
+            android:icon="@drawable/ic_shortcut_playlist"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

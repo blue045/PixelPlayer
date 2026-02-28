@@ -1,17 +1,20 @@
 package com.theveloper.pixelplay
 
+import com.theveloper.pixelplay.presentation.navigation.navigateSafely
+
 // import androidx.compose.ui.platform.LocalView // No longer needed for this
 // import androidx.core.view.WindowInsetsCompat // No longer needed for this
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
-import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.Trace
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,7 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,12 +75,10 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -88,6 +89,8 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.theveloper.pixelplay.data.github.GitHubAnnouncementPropertiesService
+import com.theveloper.pixelplay.data.github.PlayStoreAnnouncementRemoteConfig
 import com.theveloper.pixelplay.data.preferences.AppThemeMode
 import com.theveloper.pixelplay.data.preferences.NavBarStyle
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
@@ -104,6 +107,9 @@ import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.components.NavBarContentHeight
 import com.theveloper.pixelplay.presentation.components.NavBarContentHeightFullWidth
 import com.theveloper.pixelplay.presentation.components.PlayerInternalNavigationBar
+import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDefaults
+import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementDialog
+import com.theveloper.pixelplay.presentation.components.PlayStoreAnnouncementUiModel
 import com.theveloper.pixelplay.presentation.components.UnifiedPlayerSheet
 import com.theveloper.pixelplay.presentation.components.UnifiedPlayerSheetV2
 import com.theveloper.pixelplay.presentation.navigation.AppNavigation
@@ -148,6 +154,7 @@ private data class DismissUndoBarSlice(
 class MainActivity : ComponentActivity() {
 
     private val playerViewModel: PlayerViewModel by viewModels()
+    private val mainViewModel: MainViewModel by viewModels()
     private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     @Inject
     lateinit var userPreferencesRepository: UserPreferencesRepository // Inject here
@@ -162,29 +169,38 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         LogUtils.d(this, "onCreate")
-        installSplashScreen()
-        enableEdgeToEdge()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            window.navigationBarColor = Color.TRANSPARENT
-        }
+        val splashScreen = installSplashScreen()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
         }
         super.onCreate(savedInstanceState)
 
+        // Keep splash screen visible until DataStore has emitted the initial setup state,
+        // preventing the blank-screen flash between splash and first frame.
+        splashScreen.setKeepOnScreenCondition { mainViewModel.isSetupComplete.value == null }
+
         // LEER SEÑAL DE BENCHMARK
         val isBenchmarkMode = intent.getBooleanExtra("is_benchmark", false)
 
         setContent {
-            val mainViewModel: MainViewModel = hiltViewModel()
             val systemDarkTheme = isSystemInDarkTheme()
-            val appThemeMode by userPreferencesRepository.appThemeModeFlow.collectAsState(initial = AppThemeMode.FOLLOW_SYSTEM)
+            val appThemeMode by userPreferencesRepository.appThemeModeFlow.collectAsStateWithLifecycle(initialValue = AppThemeMode.FOLLOW_SYSTEM)
             val useDarkTheme = when (appThemeMode) {
                 AppThemeMode.DARK -> true
                 AppThemeMode.LIGHT -> false
                 else -> systemDarkTheme
             }
-            val isSetupComplete by mainViewModel.isSetupComplete.collectAsState()
+            val isSetupComplete by mainViewModel.isSetupComplete.collectAsStateWithLifecycle()
             var showSetupScreen by remember { mutableStateOf<Boolean?>(null) }
             
             // Crash report dialog state
@@ -205,16 +221,14 @@ class MainActivity : ComponentActivity() {
             // Determine if we need to show Setup based on completion OR missing permissions
             val permissionsValid = permissionState.allPermissionsGranted && !needsAllFilesAccess
 
-            LaunchedEffect(isSetupComplete, permissionsValid) {
-                // If benchmark, skip setup.
-                // Otherwise, show setup if: Setup incomplete OR Permissions invalid
-                // FIX: Only Open setup automatically. Close is handled by callback to prevent premature closing if permissions change mid-flow.
-                if (!isBenchmarkMode && (!isSetupComplete || !permissionsValid)) {
-                    showSetupScreen = true
-                } else if (showSetupScreen == null) {
-                    // FIX: If starting up and conditions are valid, explicitly go to main app.
+            LaunchedEffect(isSetupComplete, permissionsValid, isBenchmarkMode) {
+                if (isBenchmarkMode) {
                     showSetupScreen = false
+                    return@LaunchedEffect
                 }
+
+                val setupComplete = isSetupComplete ?: return@LaunchedEffect
+                showSetupScreen = !setupComplete || !permissionsValid
             }
 
             // Sync Trigger: When we are NOT showing setup (meaning permissions are good and setup is done)
@@ -292,9 +306,10 @@ class MainActivity : ComponentActivity() {
         if (intent == null) return
 
         when {
-            // Handle shuffle all shortcut
+            // Handle shuffle all shortcut / tile
             intent.action == ACTION_SHUFFLE_ALL -> {
-                _pendingShuffleAll.value = true
+                android.util.Log.d("TileDebug", "handleIntent: ACTION_SHUFFLE_ALL received")
+                playerViewModel.triggerShuffleAllFromTile()
                 intent.action = null // Clear action to prevent re-triggering
             }
             
@@ -390,49 +405,62 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra(android.content.Intent.EXTRA_STREAM)
     }
 
+    private fun openExternalUrl(url: String) {
+        val intent = Intent(Intent.ACTION_VIEW, url.toUri())
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            LogUtils.w(this, "No activity available to open URL: $url")
+        }
+    }
+
+    private fun PlayStoreAnnouncementRemoteConfig.toUiModel(): PlayStoreAnnouncementUiModel {
+        val fallback = PlayStoreAnnouncementDefaults.Template
+        return fallback.copy(
+            enabled = enabled,
+            playStoreUrl = playStoreUrl ?: fallback.playStoreUrl,
+            title = title ?: fallback.title,
+            body = body ?: fallback.body,
+            primaryActionLabel = primaryActionLabel ?: fallback.primaryActionLabel,
+            dismissActionLabel = dismissActionLabel ?: fallback.dismissActionLabel,
+            linkPendingMessage = linkPendingMessage ?: fallback.linkPendingMessage,
+        )
+    }
+
     @androidx.annotation.OptIn(UnstableApi::class)
     @Composable
     private fun MainAppContent(playerViewModel: PlayerViewModel, mainViewModel: MainViewModel) {
         Trace.beginSection("MainActivity.MainAppContent")
         val navController = rememberNavController()
-        val isSyncing by mainViewModel.isSyncing.collectAsState()
-        val isLibraryEmpty by mainViewModel.isLibraryEmpty.collectAsState()
-        val hasCompletedInitialSync by mainViewModel.hasCompletedInitialSync.collectAsState()
-        val syncProgress by mainViewModel.syncProgress.collectAsState()
+        val isSyncing by mainViewModel.isSyncing.collectAsStateWithLifecycle()
+        val isLibraryEmpty by mainViewModel.isLibraryEmpty.collectAsStateWithLifecycle()
+        val hasCompletedInitialSync by mainViewModel.hasCompletedInitialSync.collectAsStateWithLifecycle()
+        val syncProgress by mainViewModel.syncProgress.collectAsStateWithLifecycle()
         
-        // Observe pending shuffle action
-        val pendingShuffleAll by _pendingShuffleAll.collectAsState()
-        var processedShuffle by remember { mutableStateOf(false) }
-        
-        LaunchedEffect(pendingShuffleAll) {
-            if (pendingShuffleAll && !processedShuffle) {
-                processedShuffle = true
-                // Wait a bit for the library to be ready
-                kotlinx.coroutines.delay(500)
-                playerViewModel.shuffleAllSongs()
-                _pendingShuffleAll.value = false
-            } else if (!pendingShuffleAll) {
-                processedShuffle = false
-            }
-        }
+        // isMediaControllerReady used below for playlist navigation gate
+        val isMediaControllerReady by playerViewModel.isMediaControllerReady.collectAsStateWithLifecycle()
         
         // Observe pending playlist navigation
-        val pendingPlaylistNav by _pendingPlaylistNavigation.collectAsState()
+        val pendingPlaylistNav by _pendingPlaylistNavigation.collectAsStateWithLifecycle()
         var processedPlaylistId by remember { mutableStateOf<String?>(null) }
         
-        LaunchedEffect(pendingPlaylistNav) {
+        LaunchedEffect(pendingPlaylistNav, isMediaControllerReady) {
             val playlistId = pendingPlaylistNav
             // Only process if we have a new playlist ID that hasn't been processed yet
-            if (playlistId != null && playlistId != processedPlaylistId) {
+            if (playlistId != null && playlistId != processedPlaylistId && isMediaControllerReady) {
                 processedPlaylistId = playlistId
                 // Wait for navigation graph to be ready (retry with delay)
                 var success = false
                 var attempts = 0
                 while (!success && attempts < 50) { // 5 seconds max
                     try {
-                        navController.navigate(Screen.PlaylistDetail.createRoute(playlistId))
-                        success = true
-                        _pendingPlaylistNavigation.value = null
+                        success = navController.navigateSafely(Screen.PlaylistDetail.createRoute(playlistId))
+                        if (success) {
+                            _pendingPlaylistNavigation.value = null
+                        } else {
+                            delay(100)
+                            attempts++
+                        }
                     } catch (e: IllegalArgumentException) {
                         delay(100)
                         attempts++
@@ -507,6 +535,7 @@ class MainActivity : ComponentActivity() {
         val routesWithHiddenNavigationBar = remember {
             setOf(
                 Screen.Settings.route,
+                Screen.Accounts.route,
                 Screen.PlaylistDetail.route,
                 Screen.DailyMixScreen.route,
                 Screen.RecentlyPlayed.route,
@@ -546,8 +575,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val navBarStyle by playerViewModel.navBarStyle.collectAsState()
-        val hapticsEnabled by playerViewModel.hapticsEnabled.collectAsState()
+        val navBarStyle by playerViewModel.navBarStyle.collectAsStateWithLifecycle()
+        val hapticsEnabled by playerViewModel.hapticsEnabled.collectAsStateWithLifecycle()
         val rootView = LocalView.current
         val platformHapticFeedback = LocalHapticFeedback.current
         val appHapticsConfig = remember(hapticsEnabled) {
@@ -572,6 +601,30 @@ class MainActivity : ComponentActivity() {
 
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
         val scope = rememberCoroutineScope()
+        val announcementService = remember { GitHubAnnouncementPropertiesService() }
+        var playStoreAnnouncement by remember { mutableStateOf(PlayStoreAnnouncementDefaults.Template) }
+        var showPlayStoreAnnouncement by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) {
+            if (PlayStoreAnnouncementDefaults.LOCAL_PREVIEW_ENABLED) {
+                playStoreAnnouncement = PlayStoreAnnouncementDefaults.HardcodedPreview
+                showPlayStoreAnnouncement = true
+                return@LaunchedEffect
+            }
+
+            announcementService.fetchPlayStoreAnnouncement()
+                .onSuccess { remoteConfig ->
+                    val resolvedAnnouncement = remoteConfig.toUiModel()
+                    playStoreAnnouncement = resolvedAnnouncement
+                    showPlayStoreAnnouncement = resolvedAnnouncement.enabled
+                }
+                .onFailure { throwable ->
+                    LogUtils.w(
+                        this@MainActivity,
+                        "Remote announcement unavailable. Keeping popup disabled. ${throwable.message ?: ""}",
+                    )
+                }
+        }
 
         CompositionLocalProvider(
             LocalAppHapticsConfig provides appHapticsConfig,
@@ -583,11 +636,11 @@ class MainActivity : ComponentActivity() {
                 onDestinationSelected = { destination ->
                     scope.launch { drawerState.close() }
                     when (destination) {
-                        DrawerDestination.Home -> navController.navigate(Screen.Home.route) {
+                        DrawerDestination.Home -> navController.navigateSafely(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        DrawerDestination.Equalizer -> navController.navigate(Screen.Equalizer.route)
-                        DrawerDestination.Settings -> navController.navigate(Screen.Settings.route)
+                        DrawerDestination.Equalizer -> navController.navigateSafely(Screen.Equalizer.route)
+                        DrawerDestination.Settings -> navController.navigateSafely(Screen.Settings.route)
                         DrawerDestination.Telegram -> {
                             val intent = Intent(this@MainActivity, com.theveloper.pixelplay.presentation.telegram.auth.TelegramLoginActivity::class.java)
                             startActivity(intent)
@@ -606,9 +659,9 @@ class MainActivity : ComponentActivity() {
                             playerViewModel.stablePlayerState
                                 .map { it.currentSong?.id }
                                 .distinctUntilChanged()
-                        }.collectAsState(initial = null)
+                        }.collectAsStateWithLifecycle(initialValue = null)
                         val showPlayerContentArea = currentSongId != null
-                        val navBarCornerRadius by playerViewModel.navBarCornerRadius.collectAsState()
+                        val navBarCornerRadius by playerViewModel.navBarCornerRadius.collectAsStateWithLifecycle()
                         val navBarElevation = 3.dp
 
                         val playerContentActualBottomRadiusTargetValue by remember(
@@ -731,8 +784,8 @@ class MainActivity : ComponentActivity() {
                             playerViewModel.stablePlayerState
                                 .map { it.currentSong?.id != null }
                                 .distinctUntilChanged()
-                        }.collectAsState(initial = false)
-                        val usePlayerSheetV2 by userPreferencesRepository.usePlayerSheetV2Flow.collectAsState(initial = true)
+                        }.collectAsStateWithLifecycle(initialValue = false)
+                        val usePlayerSheetV2 by userPreferencesRepository.usePlayerSheetV2Flow.collectAsStateWithLifecycle(initialValue = true)
 
                         val routesWithHiddenMiniPlayer = remember { setOf(Screen.NavBarCrRad.route) }
                         val shouldHideMiniPlayer by remember(currentRoute) {
@@ -787,7 +840,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 .distinctUntilChanged()
-                        }.collectAsState(initial = DismissUndoBarSlice())
+                        }.collectAsStateWithLifecycle(initialValue = DismissUndoBarSlice())
                         val onUndoDismissPlaylist = remember(playerViewModel) {
                             { playerViewModel.undoDismissPlaylist() }
                         }
@@ -812,6 +865,17 @@ class MainActivity : ComponentActivity() {
                                 onUndo = onUndoDismissPlaylist,
                                 onClose = onCloseDismissUndoBar,
                                 durationMillis = dismissUndoBarSlice.durationMillis
+                            )
+                        }
+
+                        if (showPlayStoreAnnouncement) {
+                            PlayStoreAnnouncementDialog(
+                                announcement = playStoreAnnouncement,
+                                onDismiss = { showPlayStoreAnnouncement = false },
+                                onOpenPlayStore = { url ->
+                                    showPlayStoreAnnouncement = false
+                                    openExternalUrl(url)
+                                }
                             )
                         }
                     }

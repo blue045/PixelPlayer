@@ -23,8 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -126,12 +127,12 @@ fun UnifiedPlayerSheetV2(
         )
     }
 
-    val infrequentPlayerStateReference = playerViewModel.stablePlayerStateInfrequent.collectAsState()
+    val infrequentPlayerStateReference = playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
     val infrequentPlayerState = infrequentPlayerStateReference.value
 
-    val currentPositionState = playerViewModel.currentPlaybackPosition.collectAsState()
-    val remotePositionState = playerViewModel.remotePosition.collectAsState()
-    val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsState()
+    val currentPositionState = playerViewModel.currentPlaybackPosition.collectAsStateWithLifecycle()
+    val remotePositionState = playerViewModel.remotePosition.collectAsStateWithLifecycle()
+    val isRemotePlaybackActive by playerViewModel.isRemotePlaybackActive.collectAsStateWithLifecycle()
     val positionToDisplayProvider = remember(isRemotePlaybackActive) {
         {
             if (isRemotePlaybackActive) remotePositionState.value
@@ -139,7 +140,7 @@ fun UnifiedPlayerSheetV2(
         }
     }
 
-    val isFavorite by playerViewModel.isCurrentSongFavorite.collectAsState()
+    val isFavorite by playerViewModel.isCurrentSongFavorite.collectAsStateWithLifecycle()
 
     val playerUiSheetSlice by remember {
         playerViewModel.playerUiState
@@ -151,23 +152,23 @@ fun UnifiedPlayerSheetV2(
                 )
             }
             .distinctUntilChanged()
-    }.collectAsState(initial = PlayerUiSheetSliceV2())
+    }.collectAsStateWithLifecycle(initialValue = PlayerUiSheetSliceV2())
     val currentPlaybackQueue = playerUiSheetSlice.currentPlaybackQueue
     val currentQueueSourceName = playerUiSheetSlice.currentQueueSourceName
     val preparingSongId = playerUiSheetSlice.preparingSongId
 
-    val currentSheetContentState by playerViewModel.sheetState.collectAsState()
-    val predictiveBackCollapseProgress by playerViewModel.predictiveBackCollapseFraction.collectAsState()
-    var predictiveBackSwipeEdge by remember { mutableStateOf<Int?>(null) }
+    val currentSheetContentState by playerViewModel.sheetState.collectAsStateWithLifecycle()
+    val predictiveBackCollapseProgress by playerViewModel.predictiveBackCollapseFraction.collectAsStateWithLifecycle()
+    val predictiveBackSwipeEdge by playerViewModel.predictiveBackSwipeEdge.collectAsStateWithLifecycle()
     val prewarmFullPlayer = rememberPrewarmFullPlayer(infrequentPlayerState.currentSong?.id)
 
-    val navBarCornerRadius by playerViewModel.navBarCornerRadius.collectAsState()
-    val navBarStyle by playerViewModel.navBarStyle.collectAsState()
-    val carouselStyle by playerViewModel.carouselStyle.collectAsState()
-    val fullPlayerLoadingTweaks by playerViewModel.fullPlayerLoadingTweaks.collectAsState()
-    val tapBackgroundClosesPlayer by playerViewModel.tapBackgroundClosesPlayer.collectAsState()
-    val useSmoothCorners by playerViewModel.useSmoothCorners.collectAsState()
-    val playerThemePreference by playerViewModel.playerThemePreference.collectAsState()
+    val navBarCornerRadius by playerViewModel.navBarCornerRadius.collectAsStateWithLifecycle()
+    val navBarStyle by playerViewModel.navBarStyle.collectAsStateWithLifecycle()
+    val carouselStyle by playerViewModel.carouselStyle.collectAsStateWithLifecycle()
+    val fullPlayerLoadingTweaks by playerViewModel.fullPlayerLoadingTweaks.collectAsStateWithLifecycle()
+    val tapBackgroundClosesPlayer by playerViewModel.tapBackgroundClosesPlayer.collectAsStateWithLifecycle()
+    val useSmoothCorners by playerViewModel.useSmoothCorners.collectAsStateWithLifecycle()
+    val playerThemePreference by playerViewModel.playerThemePreference.collectAsStateWithLifecycle()
 
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
@@ -190,7 +191,7 @@ fun UnifiedPlayerSheetV2(
     }
     val miniPlayerContentHeightPx = remember { with(density) { MiniPlayerHeight.toPx() } }
 
-    val isCastConnecting by playerViewModel.isCastConnecting.collectAsState()
+    val isCastConnecting by playerViewModel.isCastConnecting.collectAsStateWithLifecycle()
     val showPlayerContentArea by remember(infrequentPlayerState.currentSong, isCastConnecting) {
         derivedStateOf { infrequentPlayerState.currentSong != null || isCastConnecting }
     }
@@ -229,16 +230,16 @@ fun UnifiedPlayerSheetV2(
         playerViewModel = playerViewModel
     )
 
+    // FullPlayerVisualState now holds lazy getters that read from the Animatable
+    // inside graphicsLayer (draw-phase), avoiding per-frame recomposition.
     val fullPlayerVisualState = rememberFullPlayerVisualState(
-        expansionFraction = playerContentExpansionFraction.value,
+        expansionFraction = playerContentExpansionFraction,
         initialOffsetY = initialFullPlayerOffsetY
     )
-    val fullPlayerContentAlpha = fullPlayerVisualState.contentAlpha
-    val fullPlayerTranslationY = fullPlayerVisualState.translationY
     val fullPlayerCompositionPolicy = rememberFullPlayerCompositionPolicy(
         currentSongId = infrequentPlayerState.currentSong?.id,
         currentSheetState = currentSheetContentState,
-        expansionFraction = playerContentExpansionFraction.value
+        expansionFraction = playerContentExpansionFraction
     )
     val shouldRenderFullPlayer = fullPlayerCompositionPolicy.shouldRenderFullPlayer
 
@@ -395,16 +396,13 @@ fun UnifiedPlayerSheetV2(
         sheetExpandedTargetY = sheetExpandedTargetY,
         sheetMotionController = sheetMotionController,
         animationDurationMs = ANIMATION_DURATION_MS,
-        onSwipeEdgeChanged = { predictiveBackSwipeEdge = it }
+        onSwipeEdgeChanged = { playerViewModel.updatePredictiveBackSwipeEdge(it) }
     )
 
     val sheetOverlayState = rememberSheetOverlayState(
         density = density,
         showPlayerContentArea = showPlayerContentArea,
         hideMiniPlayer = hideMiniPlayer,
-        currentSheetContentState = currentSheetContentState,
-        hasPendingSaveQueueOverlay = pendingSaveQueueOverlay != null,
-        hasSelectedSongForInfo = selectedSongForInfo != null,
         showQueueSheet = showQueueSheet,
         queueHiddenOffsetPx = queueHiddenOffsetPx,
         screenHeightPx = screenHeightPx,
@@ -422,8 +420,21 @@ fun UnifiedPlayerSheetV2(
     }
     val isQueueTelemetryActive = showQueueSheet
 
-    val activePlayerSchemePair by playerViewModel.activePlayerColorSchemePair.collectAsState()
-    val themedAlbumArtUri by playerViewModel.currentThemedAlbumArtUri.collectAsState()
+    LaunchedEffect(showQueueSheet) {
+        playerViewModel.updateQueueSheetVisibility(showQueueSheet)
+    }
+    LaunchedEffect(castSheetState.showCastSheet) {
+        playerViewModel.updateCastSheetVisibility(castSheetState.showCastSheet)
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            playerViewModel.updateQueueSheetVisibility(false)
+            playerViewModel.updateCastSheetVisibility(false)
+        }
+    }
+
+    val activePlayerSchemePair by playerViewModel.activePlayerColorSchemePair.collectAsStateWithLifecycle()
+    val themedAlbumArtUri by playerViewModel.currentThemedAlbumArtUri.collectAsStateWithLifecycle()
     val isDarkTheme = LocalPixelPlayDarkTheme.current
     val currentSong = infrequentPlayerState.currentSong
     val sheetThemeState = rememberSheetThemeState(
@@ -433,7 +444,6 @@ fun UnifiedPlayerSheetV2(
         currentSong = currentSong,
         themedAlbumArtUri = themedAlbumArtUri,
         preparingSongId = preparingSongId,
-        playerContentExpansionFraction = playerContentExpansionFraction,
         systemColorScheme = MaterialTheme.colorScheme
     )
     val albumColorScheme = sheetThemeState.albumColorScheme
@@ -442,17 +452,12 @@ fun UnifiedPlayerSheetV2(
     val miniReadyAlpha = sheetThemeState.miniReadyAlpha
     val miniAppearScale = sheetThemeState.miniAppearScale
     val playerAreaBackground = sheetThemeState.playerAreaBackground
-    val effectivePlayerAreaElevation = sheetThemeState.effectivePlayerAreaElevation
-    val miniAlpha = sheetThemeState.miniAlpha
-    val visualCardShadowElevation by remember(
-        effectivePlayerAreaElevation,
-        showQueueSheet,
-        playerContentExpansionFraction
-    ) {
+    // Elevation is only visible in the mini/collapsed state (expansion < 0.18).
+    // miniReadyAlpha fades the shadow in during the initial song-appear animation.
+    val visualCardShadowElevation by remember(showQueueSheet, miniReadyAlpha) {
         derivedStateOf {
-            // Keep rich shadow in mini/collapsing states, but drop expensive blur when full player/queue are active.
             if (showQueueSheet || playerContentExpansionFraction.value > 0.18f) 0.dp
-            else effectivePlayerAreaElevation
+            else (3f * miniReadyAlpha).dp
         }
     }
 
@@ -560,12 +565,10 @@ fun UnifiedPlayerSheetV2(
                             infrequentPlayerState = infrequentPlayerState,
                             isCastConnecting = isCastConnecting,
                             isPreparingPlayback = isPreparingPlayback,
-                            miniAlpha = miniAlpha,
                             playerContentExpansionFraction = playerContentExpansionFraction,
                             albumColorScheme = albumColorScheme,
                             bottomSheetOpenFraction = bottomSheetOpenFraction,
-                            fullPlayerContentAlpha = fullPlayerContentAlpha,
-                            fullPlayerTranslationY = fullPlayerTranslationY,
+                            fullPlayerVisualState = fullPlayerVisualState,
                             currentPlaybackQueue = currentPlaybackQueue,
                             currentQueueSourceName = currentQueueSourceName,
                             currentSheetContentState = currentSheetContentState,

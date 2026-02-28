@@ -46,7 +46,13 @@ object AudioFileProvider {
             while (!isEndOfStream) {
                 val inputBufferIndex = decoder.dequeueInputBuffer(TIMEOUT_US)
                 if (inputBufferIndex >= 0) {
-                    val inputBuffer = decoder.getInputBuffer(inputBufferIndex)!!
+                    val inputBuffer = decoder.getInputBuffer(inputBufferIndex)
+                    if (inputBuffer == null) {
+                        Log.w("AudioFileProvider", "Decoder input buffer was null, ending decode early")
+                        decoder.queueInputBuffer(inputBufferIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        isEndOfStream = true
+                        continue
+                    }
                     val sampleSize = extractor.readSampleData(inputBuffer, 0)
                     if (sampleSize < 0) {
                         decoder.queueInputBuffer(inputBufferIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
@@ -59,7 +65,13 @@ object AudioFileProvider {
 
                 var outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
                 while (outputBufferIndex >= 0) {
-                    val outputBuffer = decoder.getOutputBuffer(outputBufferIndex)!!
+                    val outputBuffer = decoder.getOutputBuffer(outputBufferIndex)
+                    if (outputBuffer == null) {
+                        Log.w("AudioFileProvider", "Decoder output buffer was null, skipping chunk")
+                        decoder.releaseOutputBuffer(outputBufferIndex, false)
+                        outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+                        continue
+                    }
                     val chunk = ByteArray(bufferInfo.size)
                     outputBuffer.get(chunk)
 

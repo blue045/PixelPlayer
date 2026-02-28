@@ -13,6 +13,7 @@ import com.kyant.taglib.TagLib
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.database.MusicDao
 import com.theveloper.pixelplay.data.model.Lyrics
+import com.theveloper.pixelplay.data.model.SyncedLine
 import com.theveloper.pixelplay.data.model.LyricsSourcePreference
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.data.network.lyrics.LrcLibApiService
@@ -36,6 +37,9 @@ import java.net.UnknownHostException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
+import kotlin.coroutines.cancellation.CancellationException
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
@@ -54,7 +58,10 @@ private data class LyricsData(
     val syncedLyrics: String?,
     val wordByWordLyrics: String? = null
 ) {
-    fun hasLyrics(): Boolean = !plainLyrics.isNullOrBlank() || !syncedLyrics.isNullOrBlank()
+    fun hasLyrics(): Boolean =
+        !plainLyrics.isNullOrBlank() ||
+            !syncedLyrics.isNullOrBlank() ||
+            !wordByWordLyrics.isNullOrBlank()
 }
 
 private data class RemoteSearchStrategy(
@@ -71,7 +78,8 @@ private data class RemoteSearchBatch(
 class LyricsRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val lrcLibApiService: LrcLibApiService,
-    private val lyricsDao: com.theveloper.pixelplay.data.database.LyricsDao
+    private val lyricsDao: com.theveloper.pixelplay.data.database.LyricsDao,
+    private val okHttpClient: OkHttpClient
 ) : LyricsRepository {
 
 
@@ -84,6 +92,9 @@ class LyricsRepositoryImpl @Inject constructor(
         // API rate limiting constants (matching Rhythm)
         private const val LRCLIB_MIN_DELAY = 100L
         private const val MAX_CALLS_PER_MINUTE = 30
+        private const val AMLLDB_NCM_LYRICS_BASE_URL = "https://amlldb.bikonoo.com/lyrics/ncm-lyrics/"
+        private const val NETWORK_RETRY_ATTEMPTS = 3
+        private const val NETWORK_RETRY_INITIAL_DELAY_MS = 500L
     }
 
     // Repository scope for background tasks
@@ -119,8 +130,17 @@ class LyricsRepositoryImpl @Inject constructor(
         val channel = Channel<RemoteSearchBatch>(capacity = strategies.size)
         val jobs = strategies.map { strategy ->
             launch {
-                val responses = runCatching { strategy.request() }
-                    .getOrNull()
+                val responses = runCatching {
+                    withNetworkRetry(operationName = "lrclib_strategy:${strategy.name}") {
+                        strategy.request()
+                    }
+                }.getOrElse { error ->
+                    Log.d(
+                        TAG,
+                        "Strategy ${strategy.name} failed after retries: ${error.message}"
+                    )
+                    null
+                }
                     ?.toList()
                     .orEmpty()
                 channel.trySend(
@@ -144,6 +164,47 @@ class LyricsRepositoryImpl @Inject constructor(
 
         channel.close()
         emptyList()
+    }
+
+    private suspend fun <T> withNetworkRetry(
+        operationName: String,
+        maxAttempts: Int = NETWORK_RETRY_ATTEMPTS,
+        initialDelayMs: Long = NETWORK_RETRY_INITIAL_DELAY_MS,
+        shouldRetry: (Throwable) -> Boolean = { it.isRetryableNetworkError() },
+        block: suspend () -> T
+    ): T {
+        var delayMs = initialDelayMs
+        repeat(maxAttempts) { attempt ->
+            try {
+                return block()
+            } catch (throwable: Throwable) {
+                if (throwable is CancellationException) throw throwable
+                val lastAttempt = attempt == maxAttempts - 1
+                val retryable = shouldRetry(throwable)
+                if (!retryable || lastAttempt) {
+                    throw throwable
+                }
+                Log.d(
+                    TAG,
+                    "Retrying $operationName after failure (${attempt + 1}/$maxAttempts): ${throwable.message}"
+                )
+                delay(delayMs)
+                delayMs *= 2
+            }
+        }
+        error("Unreachable retry state for $operationName")
+    }
+
+    private fun Throwable.isRetryableNetworkError(): Boolean {
+        return when (this) {
+            is IOException -> true
+            is HttpException -> code() == 429 || code() >= 500
+            else -> false
+        }
+    }
+
+    private fun Int.isRetryableHttpStatusCode(): Boolean {
+        return this == 429 || this in 500..599
     }
 
     /**
@@ -199,11 +260,12 @@ class LyricsRepositoryImpl @Inject constructor(
         forceRefresh: Boolean
     ): Lyrics? = withContext(Dispatchers.IO) {
         val cacheKey = generateCacheKey(song.id)
+        val isNeteaseTrack = isNeteaseSong(song)
         
         Log.d(TAG, "===== FETCH LYRICS START: ${song.displayArtist} - ${song.title} (forceRefresh=$forceRefresh, source=$sourcePreference) =====")
 
         // Check in-memory cache unless force refresh (early return - matching Rhythm)
-        if (!forceRefresh) {
+        if (!forceRefresh && !isNeteaseTrack) {
             synchronized(lyricsCache) {
                 lyricsCache[cacheKey]?.let { cached ->
                     Log.d(TAG, "===== RETURNING IN-MEMORY CACHED LYRICS =====")
@@ -211,6 +273,8 @@ class LyricsRepositoryImpl @Inject constructor(
                 }
             }
             Log.d(TAG, "===== NO IN-MEMORY CACHE HIT, proceeding to fetch =====")
+        } else if (!forceRefresh && isNeteaseTrack) {
+            Log.d(TAG, "===== BYPASSING IN-MEMORY CACHE FOR NETEASE TRACK =====")
         } else {
             Log.d(TAG, "===== FORCE REFRESH - BYPASSING IN-MEMORY CACHE =====")
         }
@@ -286,6 +350,17 @@ class LyricsRepositoryImpl @Inject constructor(
      * Fetches lyrics from LRCLIB API with rate limiting (matching Rhythm)
      */
     private suspend fun fetchLyricsFromAPI(song: Song): Lyrics? = withContext(Dispatchers.IO) {
+        val isNetease = isNeteaseSong(song)
+
+        if (isNetease) {
+            val amlLyrics = fetchFromAmlldb(song)
+            if (amlLyrics != null) {
+                Log.d(TAG, "===== LOADED WORD-BY-WORD LYRICS FROM AMLLDB =====")
+                return@withContext amlLyrics
+            }
+            Log.d(TAG, "AMLLDB unavailable for Netease song, falling back to cache/LRCLIB")
+        }
+
         // Check JSON disk cache first (matching Rhythm)
         val cachedJson = loadLocalLyricsJson(song)
         if (cachedJson != null) {
@@ -310,6 +385,9 @@ class LyricsRepositoryImpl @Inject constructor(
             val useSimplifiedStrategy =
                 simplifiedArtist != cleanArtist || simplifiedTitle != cleanTitle
 
+            // Track which title variant was used for the successful search
+            var effectiveTitle = cleanTitle
+
             val searchStrategies = buildList {
                 add(
                     RemoteSearchStrategy("track+artist") {
@@ -328,11 +406,24 @@ class LyricsRepositoryImpl @Inject constructor(
                         }
                     )
                 }
+                
+                // Smart title cleanup strategy (removes leading digits/spaces and truncates at -, (, ))
+                val smartTitle = cleanTitleSmart(cleanTitle)
+                if (smartTitle != cleanTitle && smartTitle.isNotBlank()) {
+                    Log.d(TAG, "Adding smart search strategy for: '$smartTitle' (orig: '$cleanTitle')")
+                    add(RemoteSearchStrategy("smart_track_only") {
+                        lrcLibApiService.searchLyrics(trackName = smartTitle)
+                    })
+                }
             }
 
             var results = runSearchStrategiesFast(searchStrategies)
+            
+            // Check if results came from a smart/simplified strategy  
+            // by seeing if the effective title should be updated
+            val smartTitle = cleanTitleSmart(cleanTitle)
 
-            // Strategy 4: Aggressive fallback - remove artist and trim title at separators (-, ,, (, ), $, #, :, %)
+            // Strategy 4: Aggressive fallback - remove artist and trim title at separators
             if (results.isEmpty()) {
                  val separators = charArrayOf('-', ',', '(', ')', '$', '#', ':', '%')
                  val index = cleanTitle.indexOfAny(separators)
@@ -340,8 +431,11 @@ class LyricsRepositoryImpl @Inject constructor(
                      val superCleanTitle = cleanTitle.substring(0, index).trim()
                      if (superCleanTitle.isNotEmpty()) {
                           Log.d(TAG, "Strategy 4: Searching with super simplified title: '$superCleanTitle' (no artist)")
+                          effectiveTitle = superCleanTitle
                           val fallbackResults = runCatching {
-                                lrcLibApiService.searchLyrics(trackName = superCleanTitle)
+                                withNetworkRetry(operationName = "lrclib_super_clean_search") {
+                                    lrcLibApiService.searchLyrics(trackName = superCleanTitle)
+                                }
                           }.getOrNull()
                           if (!fallbackResults.isNullOrEmpty()) {
                               results = fallbackResults.toList()
@@ -355,18 +449,26 @@ class LyricsRepositoryImpl @Inject constructor(
                 return@withContext null
             }
 
-            // Find best match - prioritize exact matches, then synced lyrics (matching Rhythm)
+            // Find best match - prioritize exact matches, then synced lyrics
+            // Use effectiveTitle for matching to avoid rejecting results from fallback strategies
             val songDurationSeconds = song.duration / 1000
+            val matchTitle = effectiveTitle
             val bestMatch = results.firstOrNull { result ->
                 val artistMatch = result.artistName.lowercase().contains(cleanArtist.lowercase()) ||
                         cleanArtist.lowercase().contains(result.artistName.lowercase())
-                val titleMatch = result.name.lowercase().contains(cleanTitle.lowercase()) ||
-                        cleanTitle.lowercase().contains(result.name.lowercase())
+                val titleMatch = result.name.lowercase().contains(matchTitle.lowercase()) ||
+                        matchTitle.lowercase().contains(result.name.lowercase())
                 val durationDiff = abs(result.duration - songDurationSeconds)
 
                 (artistMatch && titleMatch) && durationDiff <= 15 && hasLyrics(result)
-            } ?: results.firstOrNull { hasSyncedLyrics(it) && abs(it.duration - songDurationSeconds) <= 15 }
-            ?: results.firstOrNull { hasLyrics(it) && abs(it.duration - songDurationSeconds) <= 15 }
+            } ?: results.firstOrNull { result ->
+                // Relaxed match: try with smart title or just check duration + lyrics
+                val titleMatch = result.name.lowercase().contains(smartTitle.lowercase()) ||
+                        smartTitle.lowercase().contains(result.name.lowercase())
+                titleMatch && hasSyncedLyrics(result) && abs(result.duration - songDurationSeconds) <= 30
+            }
+            ?: results.firstOrNull { hasSyncedLyrics(it) && abs(it.duration - songDurationSeconds) <= 15 }
+            ?: results.firstOrNull { hasLyrics(it) && abs(it.duration - songDurationSeconds) <= 30 }
 
             if (bestMatch != null) {
                 val rawLyrics = bestMatch.syncedLyrics ?: bestMatch.plainLyrics
@@ -406,6 +508,132 @@ class LyricsRepositoryImpl @Inject constructor(
 
     private fun hasSyncedLyrics(response: LrcLibResponse): Boolean =
         !response.syncedLyrics.isNullOrBlank()
+
+    private fun isNeteaseSong(song: Song): Boolean =
+        song.neteaseId != null || song.contentUriString.startsWith("netease://")
+
+    private fun resolveNeteaseSongId(song: Song): Long? {
+        song.neteaseId?.let { return it }
+        if (!song.contentUriString.startsWith("netease://")) return null
+        return Uri.parse(song.contentUriString).host?.toLongOrNull()
+    }
+
+    private suspend fun fetchFromAmlldb(song: Song): Lyrics? = withContext(Dispatchers.IO) {
+        val neteaseSongId = resolveNeteaseSongId(song) ?: return@withContext null
+        val request = Request.Builder()
+            .url("$AMLLDB_NCM_LYRICS_BASE_URL$neteaseSongId")
+            .get()
+            .build()
+
+        try {
+            val ttml = withNetworkRetry(
+                operationName = "amlldb_fetch:$neteaseSongId",
+                shouldRetry = { throwable -> throwable is IOException }
+            ) {
+                okHttpClient.newCall(request).execute().use { response ->
+                    when {
+                        response.isSuccessful -> response.body?.string().orEmpty()
+                        response.code.isRetryableHttpStatusCode() ->
+                            throw IOException("AMLLDB HTTP ${response.code} for songId=$neteaseSongId")
+                        else -> ""
+                    }
+                }
+            }
+
+            if (ttml.isBlank() || ttml.contains("歌词不存在")) return@withContext null
+            val lrc = convertAmlTtmlToLrc(ttml) ?: return@withContext null
+            val parsed = LyricsUtils.parseLyrics(lrc)
+            if (!parsed.isValid()) return@withContext null
+            return@withContext parsed.copy(areFromRemote = true)
+        } catch (e: Exception) {
+            Log.w(TAG, "AMLLDB fetch failed for $neteaseSongId: ${e.message}")
+            return@withContext null
+        }
+    }
+
+    private fun convertAmlTtmlToLrc(ttml: String): String? {
+        val lineRegex = Regex(
+            "<p\\b[^>]*\\bbegin=\"([^\"]+)\"[^>]*>(.*?)</p>",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+        val spanRegex = Regex(
+            "<span\\b([^>]*)>(.*?)</span>",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+        val beginAttrRegex = Regex("\\bbegin=\"([^\"]+)\"")
+        val roleAttrRegex = Regex("\\bttm:role=\"([^\"]+)\"")
+
+        val lrcLines = mutableListOf<String>()
+        lineRegex.findAll(ttml).forEach { lineMatch ->
+            val lineStartMs = parseTtmlTimeToMs(lineMatch.groupValues[1]) ?: return@forEach
+            var inner = lineMatch.groupValues[2]
+            val markerRegex = Regex("§§TS\\(([^)]+)\\)§§")
+
+            inner = spanRegex.replace(inner) { spanMatch ->
+                val attributes = spanMatch.groupValues[1]
+                val role = roleAttrRegex.find(attributes)?.groupValues?.getOrNull(1)?.lowercase()
+                if (role == "x-roman") {
+                    return@replace ""
+                }
+                val wordStartMs = beginAttrRegex
+                    .find(attributes)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.let(::parseTtmlTimeToMs)
+                val text = decodeXmlEntities(spanMatch.groupValues[2])
+
+                if (wordStartMs == null) {
+                    // Keep visible text (e.g. translation) but do not inject word timing.
+                    return@replace text
+                }
+
+                "§§TS(${formatTimestamp(wordStartMs.toInt())})§§$text"
+            }
+
+            val withoutXmlTags = decodeXmlEntities(inner.replace(Regex("<[^>]+>"), ""))
+            val lrcInlineTagged = markerRegex.replace(withoutXmlTags, "<$1>")
+            if (lrcInlineTagged.isBlank()) return@forEach
+
+            lrcLines += "[${formatTimestamp(lineStartMs.toInt())}]$lrcInlineTagged"
+        }
+
+        return lrcLines.takeIf { it.isNotEmpty() }?.joinToString("\n")
+    }
+
+    private fun parseTtmlTimeToMs(value: String): Long? {
+        val raw = value.trim()
+        if (raw.isEmpty()) return null
+
+        if (raw.endsWith("s")) {
+            val seconds = raw.removeSuffix("s").toDoubleOrNull() ?: return null
+            return (seconds * 1000.0).toLong()
+        }
+
+        val parts = raw.split(":")
+        val secondsPart = parts.lastOrNull()?.toDoubleOrNull() ?: return null
+        return when (parts.size) {
+            3 -> {
+                val hours = parts[0].toLongOrNull() ?: return null
+                val minutes = parts[1].toLongOrNull() ?: return null
+                (hours * 3_600_000L) + (minutes * 60_000L) + (secondsPart * 1000.0).toLong()
+            }
+            2 -> {
+                val minutes = parts[0].toLongOrNull() ?: return null
+                (minutes * 60_000L) + (secondsPart * 1000.0).toLong()
+            }
+            1 -> (secondsPart * 1000.0).toLong()
+            else -> null
+        }
+    }
+
+    private fun decodeXmlEntities(value: String): String =
+        value
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&#39;", "'")
 
     /**
      * Find local .lrc file next to the music file (matching Rhythm)
@@ -467,9 +695,14 @@ class LyricsRepositoryImpl @Inject constructor(
             val lyricsDir = File(context.filesDir, "lyrics")
             lyricsDir.mkdirs()
 
+            val wordByWordLyrics = lyrics.synced
+                ?.takeIf { lines -> lines.any { !it.words.isNullOrEmpty() } }
+                ?.let(::toWordByWordLrc)
+
             val lyricsData = LyricsData(
                 plainLyrics = lyrics.plain?.joinToString("\n"),
-                syncedLyrics = lyrics.synced?.joinToString("\n") { "[${formatTimestamp(it.time)}]${it.line}" }
+                syncedLyrics = lyrics.synced?.joinToString("\n") { "[${formatTimestamp(it.time)}]${it.line}" },
+                wordByWordLyrics = wordByWordLyrics
             )
 
             val file = File(lyricsDir, fileName)
@@ -484,7 +717,7 @@ class LyricsRepositoryImpl @Inject constructor(
     /**
      * Load lyrics from JSON disk cache (matching Rhythm)
      */
-    private fun loadLocalLyricsJson(song: Song): Lyrics? {
+    private suspend fun loadLocalLyricsJson(song: Song): Lyrics? {
         try {
             val fileName = "${song.id}.json"
             val file = File(context.filesDir, "lyrics/$fileName")
@@ -493,9 +726,28 @@ class LyricsRepositoryImpl @Inject constructor(
                 val json = file.readText()
                 val data = gson.fromJson(json, LyricsData::class.java)
                 if (data.hasLyrics()) {
-                    val rawLyrics = data.syncedLyrics ?: data.plainLyrics
+                    val rawLyrics = data.wordByWordLyrics ?: data.syncedLyrics ?: data.plainLyrics
                     val parsed = LyricsUtils.parseLyrics(rawLyrics)
                     if (parsed.isValid()) {
+                        val hasWordTimestamps = parsed.synced?.any { !it.words.isNullOrEmpty() } == true
+                        if (!hasWordTimestamps && data.wordByWordLyrics.isNullOrBlank()) {
+                            // Legacy cache may have flattened word-by-word lines.
+                            // Recover richer raw lyrics from DB when available.
+                            val persisted = lyricsDao.getLyrics(song.id.toLong())
+                            if (persisted != null && persisted.content.isNotBlank()) {
+                                val recovered = LyricsUtils.parseLyrics(persisted.content)
+                                val recoveredHasWords = recovered.synced?.any { !it.words.isNullOrEmpty() } == true
+                                if (recovered.isValid() && recoveredHasWords) {
+                                    saveLocalLyricsJson(song, recovered)
+                                    return recovered
+                                }
+                            }
+
+                            if (looksLikeFlattenedWordByWordCache(parsed)) {
+                                // Force a remote re-fetch instead of serving degraded cache.
+                                return null
+                            }
+                        }
                         return parsed
                     }
                 }
@@ -512,6 +764,39 @@ class LyricsRepositoryImpl @Inject constructor(
         val seconds = totalSeconds % 60
         val hundredths = (timeMs % 1000) / 10
         return String.format("%02d:%02d.%02d", minutes, seconds, hundredths)
+    }
+
+    private fun toWordByWordLrc(lines: List<SyncedLine>): String {
+        return lines.joinToString("\n") { line ->
+            val linePrefix = "[${formatTimestamp(line.time)}]"
+            val words = line.words
+            if (words.isNullOrEmpty()) {
+                linePrefix + line.line
+            } else {
+                val wordsPart = words.joinToString("") { word ->
+                    "<${formatTimestamp(word.time)}>${word.word}"
+                }
+                linePrefix + wordsPart
+            }
+        }
+    }
+
+    private fun looksLikeFlattenedWordByWordCache(lyrics: Lyrics): Boolean {
+        val synced = lyrics.synced ?: return false
+        var suspiciousLines = 0
+
+        for (line in synced) {
+            val text = line.line
+            if (text.isBlank() || text.any { it.isWhitespace() }) continue
+
+            val hasLongLatinRun = Regex("[A-Za-z]{10,}").containsMatchIn(text)
+            if (hasLongLatinRun) {
+                suspiciousLines += 1
+                if (suspiciousLines >= 2) return true
+            }
+        }
+
+        return false
     }
 
     /**
@@ -609,15 +894,18 @@ class LyricsRepositoryImpl @Inject constructor(
             }
 
             // Fallback: Try the exact match API (less likely to succeed, but worth a shot)
-            val response = lrcLibApiService.getLyrics(
-                trackName = song.title,
-                artistName = song.displayArtist,
-                albumName = song.album,
-                duration = (song.duration / 1000).toInt()
-            )
+            val response = withNetworkRetry(operationName = "lrclib_get_lyrics") {
+                lrcLibApiService.getLyrics(
+                    trackName = song.title,
+                    artistName = song.displayArtist,
+                    albumName = song.album,
+                    duration = (song.duration / 1000).toInt()
+                )
+            }
 
             if (response != null && (!response.syncedLyrics.isNullOrEmpty() || !response.plainLyrics.isNullOrEmpty())) {
-                val rawLyricsToSave = response.syncedLyrics ?: response.plainLyrics!!
+                val rawLyricsToSave = response.syncedLyrics ?: response.plainLyrics
+                    ?: return@withContext Result.failure(NoLyricsFoundException())
 
                 val parsedLyrics = LyricsUtils.parseLyrics(rawLyricsToSave).copy(areFromRemote = true)
                 if (!parsedLyrics.isValid()) {
@@ -670,20 +958,31 @@ class LyricsRepositoryImpl @Inject constructor(
             val cleanArtist = song.displayArtist.trim()
 
             // FAST STRATEGY: run all requests in parallel, keep first non-empty batch
-            val strategies = listOf(
-                RemoteSearchStrategy("query+artist") {
+            // FAST STRATEGY: run all requests in parallel, keep first non-empty batch
+            val strategies = buildList {
+                add(RemoteSearchStrategy("query+artist") {
                     lrcLibApiService.searchLyrics(query = combinedQuery, artistName = cleanArtist)
-                },
-                RemoteSearchStrategy("track+artist") {
+                })
+                add(RemoteSearchStrategy("track+artist") {
                     lrcLibApiService.searchLyrics(trackName = cleanTitle, artistName = cleanArtist)
-                },
-                RemoteSearchStrategy("track_only") {
-                    lrcLibApiService.searchLyrics(trackName = cleanTitle)
-                },
-                RemoteSearchStrategy("query_title_only") {
-                    lrcLibApiService.searchLyrics(query = cleanTitle)
+                })
+                
+                // Smart title cleanup strategy
+                val smartTitle = cleanTitleSmart(cleanTitle)
+                if (smartTitle != cleanTitle && smartTitle.isNotBlank()) {
+                    LogUtils.d(this@LyricsRepositoryImpl, "Adding smart search strategy for: '$smartTitle' (orig: '$cleanTitle')")
+                    add(RemoteSearchStrategy("smart_track_only") {
+                        lrcLibApiService.searchLyrics(trackName = smartTitle)
+                    })
                 }
-            )
+
+                add(RemoteSearchStrategy("track_only") {
+                    lrcLibApiService.searchLyrics(trackName = cleanTitle)
+                })
+                add(RemoteSearchStrategy("query_title_only") {
+                    lrcLibApiService.searchLyrics(query = cleanTitle)
+                })
+            }
 
             val uniqueResults = runSearchStrategiesFast(strategies)
 
@@ -964,6 +1263,20 @@ class LyricsRepositoryImpl @Inject constructor(
             LogUtils.e(this, e, "Error creating temp file from URI")
             null
         }
+    }
+
+    private fun cleanTitleSmart(title: String): String {
+        // 1. Remove leading digits/spaces/dots/hyphens (e.g., "01 ", "01. ", "01 - ")
+        var cleaned = title.replace(Regex("^[\\d\\s.\\-]+"), "")
+        
+        // 2. Truncate at first special char (-, (, ))
+        // "Taare Ginn - Envy" -> "Taare Ginn "
+        // "Song (Feat. X)" -> "Song "
+        val splitRegex = Regex("[-()]")
+        cleaned = cleaned.split(splitRegex).firstOrNull() ?: cleaned
+        
+        // 3. Trim whitespace
+        return cleaned.trim()
     }
 }
 

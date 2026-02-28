@@ -19,6 +19,7 @@ import com.theveloper.pixelplay.data.preferences.ThemePreference
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.preferences.AlbumArtQuality
 import com.theveloper.pixelplay.data.preferences.AlbumArtPaletteStyle
+import com.theveloper.pixelplay.data.preferences.CollagePattern
 import com.theveloper.pixelplay.data.preferences.FullPlayerLoadingTweaks
 import com.theveloper.pixelplay.data.repository.LyricsRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
@@ -54,8 +55,8 @@ data class SettingsUiState(
     val keepPlayingInBackground: Boolean = true,
     val disableCastAutoplay: Boolean = false,
     val showQueueHistory: Boolean = true,
-    val isCrossfadeEnabled: Boolean = true,
-    val crossfadeDuration: Int = 6000,
+    val isCrossfadeEnabled: Boolean = false,
+    val crossfadeDuration: Int = 2000,
     val persistentShuffleEnabled: Boolean = false,
     val folderBackGestureNavigation: Boolean = false,
     val lyricsSourcePreference: LyricsSourcePreference = LyricsSourcePreference.EMBEDDED_FIRST,
@@ -74,12 +75,18 @@ data class SettingsUiState(
     val hapticsEnabled: Boolean = true,
     val immersiveLyricsEnabled: Boolean = false,
     val immersiveLyricsTimeout: Long = 4000L,
+    val useAnimatedLyrics: Boolean = false,
     val backupInfoDismissed: Boolean = false,
     val isDataTransferInProgress: Boolean = false,
     val restorePlan: RestorePlan? = null,
     val backupHistory: List<BackupHistoryEntry> = emptyList(),
     val backupValidationErrors: List<ValidationError> = emptyList(),
-    val isInspectingBackup: Boolean = false
+    val isInspectingBackup: Boolean = false,
+    val collagePattern: CollagePattern = CollagePattern.default,
+    val collageAutoRotate: Boolean = false,
+    val minSongDuration: Int = 10000,
+    val replayGainEnabled: Boolean = false,
+    val replayGainUseAlbumGain: Boolean = false
 )
 
 data class FailedSongInfo(
@@ -194,6 +201,18 @@ class SettingsViewModel @Inject constructor(
                 _uiState.update { it.copy(backupHistory = history) }
             }
         }
+
+        viewModelScope.launch {
+            userPreferencesRepository.collagePatternFlow.collect { pattern ->
+                _uiState.update { it.copy(collagePattern = pattern) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.collageAutoRotateFlow.collect { autoRotate ->
+                _uiState.update { it.copy(collageAutoRotate = autoRotate) }
+            }
+        }
     }
 
     private val _dataTransferProgress = MutableStateFlow<BackupTransferProgressUpdate?>(null)
@@ -205,7 +224,7 @@ class SettingsViewModel @Inject constructor(
         
         // Group 1: Core UI settings (theme, navigation, appearance)
         viewModelScope.launch {
-            combine(
+            combine<Any?, SettingsUiUpdate.Group1>(
                 userPreferencesRepository.appRebrandDialogShownFlow,
                 userPreferencesRepository.appThemeModeFlow,
                 userPreferencesRepository.playerThemePreferenceFlow,
@@ -252,7 +271,7 @@ class SettingsViewModel @Inject constructor(
         
         // Group 2: Playback and system settings
         viewModelScope.launch {
-            combine(
+            combine<Any?, SettingsUiUpdate.Group2>(
                 userPreferencesRepository.keepPlayingInBackgroundFlow,
                 userPreferencesRepository.disableCastAutoplayFlow,
                 userPreferencesRepository.showQueueHistoryFlow,
@@ -317,6 +336,12 @@ class SettingsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            userPreferencesRepository.useAnimatedLyricsFlow.collect { enabled ->
+                _uiState.update { it.copy(useAnimatedLyrics = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
             userPreferencesRepository.backupInfoDismissedFlow.collect { dismissed ->
                 _uiState.update { it.copy(backupInfoDismissed = dismissed) }
             }
@@ -338,6 +363,24 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             userPreferencesRepository.tapBackgroundClosesPlayerFlow.collect { enabled ->
                 _uiState.update { it.copy(tapBackgroundClosesPlayer = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.minSongDurationFlow.collect { duration ->
+                _uiState.update { it.copy(minSongDuration = duration) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.replayGainEnabledFlow.collect { enabled ->
+                _uiState.update { it.copy(replayGainEnabled = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
+            userPreferencesRepository.replayGainUseAlbumGainFlow.collect { useAlbum ->
+                _uiState.update { it.copy(replayGainUseAlbumGain = useAlbum) }
             }
         }
     }
@@ -402,6 +445,18 @@ class SettingsViewModel @Inject constructor(
     fun setAlbumArtPaletteStyle(style: AlbumArtPaletteStyle) {
         viewModelScope.launch {
             userPreferencesRepository.setAlbumArtPaletteStyle(style)
+        }
+    }
+
+    fun setCollagePattern(pattern: CollagePattern) {
+        viewModelScope.launch {
+            userPreferencesRepository.setCollagePattern(pattern)
+        }
+    }
+
+    fun setCollageAutoRotate(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setCollageAutoRotate(enabled)
         }
     }
 
@@ -570,6 +625,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setUseAnimatedLyrics(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setUseAnimatedLyrics(enabled)
+        }
+    }
+
     fun refreshLibrary() {
         viewModelScope.launch {
             if (isSyncing.value) return@launch
@@ -587,6 +648,27 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             if (isSyncing.value) return@launch
             syncManager.fullSync()
+        }
+    }
+
+    fun setMinSongDuration(durationMs: Int) {
+        viewModelScope.launch {
+            if (durationMs == _uiState.value.minSongDuration) return@launch
+            userPreferencesRepository.setMinSongDuration(durationMs)
+            // Trigger a library rescan so the change takes effect in the database
+            syncManager.fullSync()
+        }
+    }
+
+    fun setReplayGainEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setReplayGainEnabled(enabled)
+        }
+    }
+
+    fun setReplayGainUseAlbumGain(useAlbumGain: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setReplayGainUseAlbumGain(useAlbumGain)
         }
     }
 

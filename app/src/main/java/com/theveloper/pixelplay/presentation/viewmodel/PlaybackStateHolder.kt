@@ -36,6 +36,7 @@ class PlaybackStateHolder @Inject constructor(
     companion object {
         private const val TAG = "PlaybackStateHolder"
         private const val DURATION_MISMATCH_TOLERANCE_MS = 1500L
+        private const val PROGRESS_TICK_MS = 250L
         /**
          * Threshold above which we skip per-item moveMediaItem calls and use
          * a single setMediaItems call instead. moveMediaItem triggers an IPC
@@ -53,6 +54,8 @@ class PlaybackStateHolder @Inject constructor(
     // Player State
     private val _stablePlayerState = MutableStateFlow(StablePlayerState())
     val stablePlayerState: StateFlow<StablePlayerState> = _stablePlayerState.asStateFlow()
+    private val _currentPosition = MutableStateFlow(0L)
+    val currentPosition: StateFlow<Long> = _currentPosition.asStateFlow()
 
     // Internal State
     private var isSeeking = false
@@ -68,6 +71,10 @@ class PlaybackStateHolder @Inject constructor(
     
     fun updateStablePlayerState(update: (StablePlayerState) -> StablePlayerState) {
         _stablePlayerState.update(update)
+    }
+
+    fun setCurrentPosition(positionMs: Long) {
+        _currentPosition.value = positionMs.coerceAtLeast(0L)
     }
     
     /* -------------------------------------------------------------------------- */
@@ -88,7 +95,7 @@ class PlaybackStateHolder @Inject constructor(
                     )
                 }
             } else {
-                if (remoteMediaClient.mediaQueue != null && remoteMediaClient.mediaQueue.itemCount > 0) {
+                if (remoteMediaClient.mediaQueue.itemCount > 0) {
                     castStateHolder.castPlayer?.play()
                     _stablePlayerState.update {
                         it.copy(
@@ -116,7 +123,7 @@ class PlaybackStateHolder @Inject constructor(
             val targetPosition = position.coerceAtLeast(0L)
             castStateHolder.setRemotelySeeking(true)
             castStateHolder.setRemotePosition(targetPosition)
-            _stablePlayerState.update { it.copy(currentPosition = targetPosition) }
+            setCurrentPosition(targetPosition)
             castStateHolder.castPlayer?.seek(targetPosition)
 
             remoteSeekUnlockJob?.cancel()
@@ -130,7 +137,7 @@ class PlaybackStateHolder @Inject constructor(
             remoteSeekUnlockJob?.cancel()
             castStateHolder.setRemotelySeeking(false)
             mediaController?.seekTo(position)
-            _stablePlayerState.update { it.copy(currentPosition = position) }
+            setCurrentPosition(position)
         }
     }
 
@@ -296,11 +303,13 @@ class PlaybackStateHolder @Inject constructor(
                         }
 
                         listeningStatsTracker.onProgress(currentPosition, isRemotePlaying)
+                        val nextPosition = if (isRemotelySeeking) _currentPosition.value else currentPosition
+                        if (_currentPosition.value != nextPosition) {
+                            _currentPosition.value = nextPosition
+                        }
 
                         _stablePlayerState.update { state ->
-                            val nextPosition = if (isRemotelySeeking) state.currentPosition else currentPosition
                             if (
-                                state.currentPosition == nextPosition &&
                                 state.totalDuration == duration &&
                                 state.isPlaying == isRemotePlaying &&
                                 state.playWhenReady == isRemotePlaying
@@ -308,7 +317,6 @@ class PlaybackStateHolder @Inject constructor(
                                 state
                             } else {
                                 state.copy(
-                                    currentPosition = nextPosition,
                                     totalDuration = duration,
                                     isPlaying = isRemotePlaying,
                                     playWhenReady = isRemotePlaying
@@ -332,9 +340,9 @@ class PlaybackStateHolder @Inject constructor(
                                  visibleSong?.id,
                                  currentMediaId
                              )
-                             delay(500)
-                             continue
-                         }
+                            delay(PROGRESS_TICK_MS)
+                            continue
+                        }
 
                          val currentPosition = controller.currentPosition.coerceAtLeast(0L)
                          val songDurationHint = visibleSong?.duration ?: 0L
@@ -345,17 +353,20 @@ class PlaybackStateHolder @Inject constructor(
                          )
                          
                          listeningStatsTracker.onProgress(currentPosition, true)
+                         if (_currentPosition.value != currentPosition) {
+                             _currentPosition.value = currentPosition
+                         }
                          
                          _stablePlayerState.update { state ->
-                             if (state.currentPosition == currentPosition && state.totalDuration == duration) {
+                             if (state.totalDuration == duration) {
                                  state
                              } else {
-                                 state.copy(currentPosition = currentPosition, totalDuration = duration)
+                                 state.copy(totalDuration = duration)
                              }
                         }
                      }
                 }
-                delay(500) // 500ms ticker
+                delay(PROGRESS_TICK_MS)
             }
         }
     }

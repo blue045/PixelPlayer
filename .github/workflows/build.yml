@@ -1,0 +1,76 @@
+name: Build PixelPlayer iOS
+on: 
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Build KMP Framework for iOS
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :shared:assembleIosArm64 -x test --no-daemon --no-build-cache --no-configuration-cache
+
+      - name: Create project.yml
+        run: |
+          cat > project.yml << 'EOF'
+          name: PixelPlayer
+          options:
+            bundleIdPrefix: com.theveloper
+            deploymentTarget:
+              iOS: "16.0"
+          targets:
+            PixelPlayer:
+              type: application
+              platform: iOS
+              sources:
+                - iosApp/iosApp
+              settings:
+                FRAMEWORK_SEARCH_PATHS: $(SRCROOT)/shared/build/bin/iosArm64/releaseFramework
+                OTHER_LDFLAGS: -framework shared
+              info:
+                path: iosApp/iosApp/Info.plist
+                properties:
+                  UILaunchScreen: {}
+          EOF
+
+      - name: Generate .xcodeproj
+        run: xcodegen generate
+
+      - name: Build and Archive
+        run: |
+          xcodebuild archive \
+            -project PixelPlayer.xcodeproj \
+            -scheme PixelPlayer \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath $PWD/build/PixelPlayer.xcarchive \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package IPA
+        run: |
+          mkdir -p build/Payload
+          cp -r build/PixelPlayer.xcarchive/Products/Applications/PixelPlayer.app build/Payload/
+          cd build
+          zip -r PixelPlayer_unsigned.ipa Payload
+          cd ..
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PixelPlayer-IPA
+          path: build/PixelPlayer_unsigned.ipa

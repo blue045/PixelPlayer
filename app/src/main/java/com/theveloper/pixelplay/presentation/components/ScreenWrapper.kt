@@ -1,5 +1,9 @@
 package com.theveloper.pixelplay.presentation.components
 
+import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -10,28 +14,39 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
+import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
 
 @Composable
 fun ScreenWrapper(
     navController: androidx.navigation.NavController,
+    playerViewModel: PlayerViewModel,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val playerSheetState by playerViewModel.sheetState.collectAsStateWithLifecycle()
+    val isQueueSheetVisible by playerViewModel.isQueueSheetVisible.collectAsStateWithLifecycle()
+    val isCastSheetVisible by playerViewModel.isCastSheetVisible.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
     
     // Lifecycle State
     var isResumed by remember { mutableStateOf(false) }
@@ -56,7 +71,7 @@ fun ScreenWrapper(
 
     // Stack Check (for Dimming)
     // We compare indices to determine if we are strictly BEHIND the active screen.
-    val backStack by navController.currentBackStack.collectAsState()
+    val backStack by navController.currentBackStack.collectAsStateWithLifecycle()
     val myEntry = lifecycleOwner as? androidx.navigation.NavBackStackEntry
     val myIndex = backStack.indexOfFirst { it.id == myEntry?.id }
     val topIndex = backStack.lastIndex
@@ -65,7 +80,9 @@ fun ScreenWrapper(
     // If I am BACKGROUND (myIndex < topIndex) -> Dim.
     // If I am TOP (myIndex == topIndex) -> Clear.
     // If I am EXITING (myIndex > topIndex, effectively in front during pop) -> Clear.
-    val shouldDim = myIndex != -1 && topIndex != -1 && myIndex < topIndex
+    val shouldDim = remember(backStack, myIndex, topIndex) {
+        myIndex != -1 && topIndex != -1 && myIndex < topIndex
+    }
 
     // Declarative Animations
     // Radius: If NOT Resumed -> 32dp. (Background OR Popped)
@@ -87,10 +104,67 @@ fun ScreenWrapper(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(cornerRadius.dp)) // Clip first
+            .run {
+                // Optimization: Avoid expensive clipping if the radius is effectively zero
+                // Using graphicsLayer is more performant than .clip() during animations
+                if (cornerRadius > 0.5f) {
+                    graphicsLayer {
+                        this.shape = RoundedCornerShape(cornerRadius.dp)
+                        this.clip = true
+                    }
+                } else {
+                    this
+                }
+            }
             .background(MaterialTheme.colorScheme.background)
     ) {
         content()
+
+        val isPlayerExpanded = playerSheetState == PlayerSheetState.EXPANDED
+        val hasBlockingOverlay = isQueueSheetVisible || isCastSheetVisible
+        val canHandlePlayerBack = isPlayerExpanded && !hasBlockingOverlay
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            PredictiveBackHandler(enabled = canHandlePlayerBack) { progressFlow ->
+                try {
+                    progressFlow.collect { backEvent ->
+                        playerViewModel.updatePredictiveBackSwipeEdge(backEvent.swipeEdge)
+                        playerViewModel.updatePredictiveBackCollapseFraction(backEvent.progress)
+                    }
+                    scope.launch {
+                        playerViewModel.collapsePlayerSheet(resetPredictiveState = false)
+                        Animatable(playerViewModel.predictiveBackCollapseFraction.value).animateTo(
+                            targetValue = 0f,
+                            animationSpec = tween(ANIMATION_DURATION_MS)
+                        ) {
+                            playerViewModel.updatePredictiveBackCollapseFraction(this.value)
+                        }
+                        playerViewModel.updatePredictiveBackSwipeEdge(null)
+                    }
+                } catch (_: CancellationException) {
+                    scope.launch {
+                        Animatable(playerViewModel.predictiveBackCollapseFraction.value).animateTo(
+                            targetValue = 0f,
+                            animationSpec = tween(ANIMATION_DURATION_MS)
+                        ) {
+                            playerViewModel.updatePredictiveBackCollapseFraction(this.value)
+                        }
+
+                        if (playerViewModel.sheetState.value == PlayerSheetState.EXPANDED) {
+                            playerViewModel.expandPlayerSheet(resetPredictiveState = false)
+                        } else {
+                            playerViewModel.collapsePlayerSheet(resetPredictiveState = false)
+                        }
+
+                        playerViewModel.updatePredictiveBackSwipeEdge(null)
+                    }
+                }
+            }
+        }
+
+        BackHandler(enabled = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE && canHandlePlayerBack) {
+            playerViewModel.collapsePlayerSheet()
+        }
         
         // Dim Layer Overlay
         if (dimAlpha > 0f) {

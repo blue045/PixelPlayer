@@ -399,7 +399,7 @@ class CastTransferStateHolder @Inject constructor(
              }
              castStateHolder.setRemotelySeeking(false)
              castStateHolder.setRemotePosition(streamPosition)
-             playbackStateHolder.updateStablePlayerState { it.copy(currentPosition = streamPosition) } // UI sync
+             playbackStateHolder.setCurrentPosition(streamPosition)
         }
 
         var queueForUi = getCurrentQueue?.invoke() ?: emptyList()
@@ -454,9 +454,9 @@ class CastTransferStateHolder @Inject constructor(
 
         if (!castStateHolder.isRemotelySeeking.value) {
             castStateHolder.setRemotePosition(streamPosition)
+            playbackStateHolder.setCurrentPosition(streamPosition)
              playbackStateHolder.updateStablePlayerState {
                  it.copy(
-                     currentPosition = streamPosition,
                      totalDuration = effectiveDurationMs,
                      currentSong = currentSongFallback,
                      lyrics = if (songChanged) null else it.lyrics,
@@ -481,7 +481,7 @@ class CastTransferStateHolder @Inject constructor(
              updateQueue?.invoke(queueForUi)
         }
         
-        if (castSession != null && (newQueue.isNotEmpty() || previousQueue.isNotEmpty())) {
+        if (newQueue.isNotEmpty() || previousQueue.isNotEmpty()) {
             onSheetVisible?.invoke()
         }
     }
@@ -634,7 +634,7 @@ class CastTransferStateHolder @Inject constructor(
 
         remoteProgressObserverJob = scope?.launch {
             castStateHolder.remotePosition.collect { position ->
-                playbackStateHolder.updateStablePlayerState { it.copy(currentPosition = position) }
+                playbackStateHolder.setCurrentPosition(position)
             }
         }
 
@@ -669,8 +669,6 @@ class CastTransferStateHolder @Inject constructor(
 
     private fun resolveCastDeviceIp(session: CastSession?): String? {
         val castDevice = session?.castDevice ?: return null
-        val direct = normalizeHostAddress(runCatching { castDevice.ipAddress }.getOrNull())
-        if (direct != null) return direct
         return normalizeHostAddress(runCatching { castDevice.inetAddress }.getOrNull())
     }
 
@@ -908,7 +906,7 @@ class CastTransferStateHolder @Inject constructor(
                 if (wasPlaying) {
                     playbackStateHolder.startProgressUpdates()
                 } else {
-                    playbackStateHolder.updateStablePlayerState { it.copy(currentPosition = transferSnapshot.lastPosition) }
+                    playbackStateHolder.setCurrentPosition(transferSnapshot.lastPosition)
                 }
             }
         } else {
@@ -1167,7 +1165,7 @@ class CastTransferStateHolder @Inject constructor(
         }
         
         castStateHolder.setRemotePosition(0L)
-        playbackStateHolder.updateStablePlayerState { it.copy(currentPosition = 0L) }
+        playbackStateHolder.setCurrentPosition(0L)
     }
 
     private fun launchAlignToTarget(targetSongId: String) {

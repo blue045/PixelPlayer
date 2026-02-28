@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
-import androidx.activity.compose.BackHandler
+import com.theveloper.pixelplay.presentation.navigation.navigateSafely
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
@@ -35,6 +36,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -45,7 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,11 +72,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.theveloper.pixelplay.R
+import com.theveloper.pixelplay.presentation.components.CollapsibleCommonTopBar
 import com.theveloper.pixelplay.presentation.components.ExpressiveTopBarContent
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.model.SettingsCategory
 import com.theveloper.pixelplay.presentation.navigation.Screen
-import com.theveloper.pixelplay.presentation.viewmodel.PlayerSheetState
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.SettingsViewModel
 import kotlin.math.roundToInt
@@ -84,50 +86,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import com.theveloper.pixelplay.data.preferences.LaunchTab
 
-@Composable
-fun SettingsTopBar(
-        collapseFraction: Float,
-        headerHeight: Dp,
-        onBackPressed: () -> Unit,
-        title: String = "Settings",
-        expandedStartPadding: Dp = 20.dp,
-        collapsedStartPadding: Dp = 68.dp,
-        maxLines: Int = 1
-) {
-    val surfaceColor = MaterialTheme.colorScheme.surface
-
-    Box(
-            modifier =
-                    Modifier.fillMaxWidth()
-                            .height(headerHeight)
-                            .background(surfaceColor.copy(alpha = collapseFraction))
-    ) {
-        Box(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            FilledIconButton(
-                    modifier =
-                            Modifier.align(Alignment.TopStart)
-                                .padding(start = 12.dp, top = 4.dp)
-                                .zIndex(1f), // Ensure icon stays on top of animated text
-                    onClick = onBackPressed,
-                    colors =
-                            IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                            )
-            ) {
-                Icon(painterResource(R.drawable.rounded_arrow_back_24), contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
-            }
-
-            ExpressiveTopBarContent(
-                    title = title,
-                    collapseFraction = collapseFraction,
-                    modifier = Modifier.fillMaxSize(),
-                    collapsedTitleStartPadding = collapsedStartPadding,
-                    expandedTitleStartPadding = expandedStartPadding,
-                    maxLines = maxLines
-            )
-        }
-    }
-}
+// SettingsTopBar removed, replaced by CollapsibleCommonTopBar
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -138,11 +97,6 @@ fun SettingsScreen(
         onNavigationIconClick: () -> Unit,
         settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val playerSheetState by playerViewModel.sheetState.collectAsState()
-
-    BackHandler(enabled = playerSheetState == PlayerSheetState.EXPANDED) {
-        playerViewModel.collapsePlayerSheet()
-    }
 
     // Animation effects
     val transitionState = remember { MutableTransitionState(false) }
@@ -173,9 +127,9 @@ fun SettingsScreen(
     val minTopBarHeightPx = with(density) { minTopBarHeight.toPx() }
     val maxTopBarHeightPx = with(density) { maxTopBarHeight.toPx() }
 
-    val uiState by settingsViewModel.uiState.collectAsState()
+    val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val launchTab = uiState.launchTab
-    val useSmoothCorners by settingsViewModel.useSmoothCorners.collectAsState()
+    val useSmoothCorners by settingsViewModel.useSmoothCorners.collectAsStateWithLifecycle()
 
     var showCornerRadiusOverlay by remember { mutableStateOf(false) }
 
@@ -247,7 +201,7 @@ fun SettingsScreen(
         LazyColumn(
                 state = lazyListState,
                 contentPadding = PaddingValues(
-                    top = currentTopBarHeightDp,
+                    top = currentTopBarHeightDp + 8.dp,
                     start = 16.dp,
                     end = 16.dp,
                     bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
@@ -271,7 +225,7 @@ fun SettingsScreen(
                             category = category,
                             customColors = colors,
                             onClick = {
-                                navController.navigate(Screen.SettingsCategory.createRoute(category.id))
+                                navController.navigateSafely(Screen.SettingsCategory.createRoute(category.id))
                             },
                             shape = when {
                                 mainCategories.size == 1 -> RoundedCornerShape(24.dp)
@@ -292,7 +246,7 @@ fun SettingsScreen(
                 ExpressiveCategoryItem(
                     category = SettingsCategory.EQUALIZER,
                     customColors = getCategoryColors(SettingsCategory.EQUALIZER, isDark),
-                    onClick = { navController.navigate(Screen.Equalizer.route) }, // Direct navigation
+                    onClick = { navController.navigateSafely(Screen.Equalizer.route) }, // Direct navigation
                     shape = RoundedCornerShape(24.dp)
                 )
 
@@ -302,7 +256,19 @@ fun SettingsScreen(
                 ExpressiveCategoryItem(
                     category = SettingsCategory.DEVICE_CAPABILITIES,
                     customColors = getCategoryColors(SettingsCategory.DEVICE_CAPABILITIES, isDark),
-                    onClick = { navController.navigate(Screen.DeviceCapabilities.route) },
+                    onClick = { navController.navigateSafely(Screen.DeviceCapabilities.route) },
+                    shape = RoundedCornerShape(24.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Accounts (Standalone)
+                ExpressiveNavigationItem(
+                    title = "Accounts",
+                    subtitle = "Manage Telegram, Google Drive, Netease, and more services",
+                    icon = Icons.Rounded.AccountCircle,
+                    colors = getAccountsColors(isDark),
+                    onClick = { navController.navigateSafely(Screen.Accounts.route) },
                     shape = RoundedCornerShape(24.dp)
                 )
 
@@ -312,7 +278,7 @@ fun SettingsScreen(
                 ExpressiveCategoryItem(
                     category = SettingsCategory.ABOUT,
                     customColors = getCategoryColors(SettingsCategory.ABOUT, isDark),
-                    onClick = { navController.navigate("about") }, // Direct navigation
+                    onClick = { navController.navigateSafely("about") }, // Direct navigation
                     shape = RoundedCornerShape(24.dp)
                 )
 
@@ -320,10 +286,11 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
-        SettingsTopBar(
+        CollapsibleCommonTopBar(
+                title = "Settings",
                 collapseFraction = collapseFraction,
                 headerHeight = currentTopBarHeightDp,
-                onBackPressed = onNavigationIconClick
+                onBackClick = onNavigationIconClick
         )
 
         // Block interaction during transition
@@ -344,6 +311,63 @@ fun SettingsScreen(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+fun ExpressiveNavigationItem(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    colors: Pair<Color, Color>,
+    onClick: () -> Unit,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp)
+) {
+    Surface(
+        onClick = onClick,
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth().height(88.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(16.dp).fillMaxSize()
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(colors.first)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = colors.second,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                Text(
+                    text = subtitle,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                    maxLines = 2
+                )
+            }
         }
     }
 }
@@ -405,29 +429,37 @@ fun ExpressiveCategoryItem(
                     text = category.subtitle,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                    maxLines = 2
                 )
             }
             
             Spacer(modifier = Modifier.width(8.dp))
             
-            // Chevron or indicator
-             Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            ) {
-                 Icon(
-                    imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+//            // Chevron or indicator
+//             Box(
+//                contentAlignment = Alignment.Center,
+//                modifier = Modifier
+//                    .size(36.dp)
+//                    .clip(CircleShape)
+//                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+//            ) {
+//                 Icon(
+//                    imageVector = Icons.Rounded.ChevronRight,
+//                    contentDescription = null,
+//                    tint = MaterialTheme.colorScheme.onSurface,
+//                    modifier = Modifier.size(20.dp)
+//                )
+//            }
         }
+    }
+}
+
+private fun getAccountsColors(isDark: Boolean): Pair<Color, Color> {
+    return if (isDark) {
+        Color(0xFF37474F) to Color(0xFFBBD9E8)
+    } else {
+        Color(0xFFD6EAF5) to Color(0xFF103548)
     }
 }
 

@@ -65,7 +65,7 @@ class MusicRepositoryImplTest {
             println("getAllSongs called with: ${args[0]}, ${args[1]}")
             flowOf(emptyList())
         }
-        every { mockMusicDao.getArtistsWithSongCountsFiltered(any(), any()) } returns flowOf(emptyList())
+        every { mockMusicDao.getArtistsWithSongCountsFiltered(any(), any(), any()) } returns flowOf(emptyList())
 
         // Logic-based DAO stubs
         every { mockMusicDao.getSongs(any(), eq(true)) } answers {
@@ -228,7 +228,7 @@ class MusicRepositoryImplTest {
         val expectedArtists = allArtistEntities.map { 
             if (it.id == 101L) it.copy(trackCount = 2) else it 
         }.filter { it.id == 101L }
-        every { mockMusicDao.getArtistsWithSongCountsFiltered(any(), eq(true)) } returns flowOf(expectedArtists)
+        every { mockMusicDao.getArtistsWithSongCountsFiltered(any(), eq(true), any()) } returns flowOf(expectedArtists)
         
         every { mockUserPreferencesRepository.allowedDirectoriesFlow } returns flowOf(allowedDirs)
         every { mockUserPreferencesRepository.initialSetupDoneFlow } returns flowOf(true)
@@ -240,6 +240,72 @@ class MusicRepositoryImplTest {
         assertEquals(1, result.size)
         assertEquals(101L, result.first().id)
         assertEquals(2, result.first().songCount)
+    }
+
+    @Test
+    fun `getGenres deduplicates normalized genre ids`() = runTest(testDispatcher) {
+        every {
+            mockMusicDao.getUniqueGenres(
+                any<List<String>>(),
+                any<Boolean>()
+            )
+        } returns flowOf(listOf("Rock", " Rock ", "rock"))
+        every {
+            mockMusicDao.hasUnknownGenre(
+                any<List<String>>(),
+                any<Boolean>()
+            )
+        } returns flowOf(false)
+
+        val result = musicRepository.getGenres().first()
+
+        assertEquals(1, result.size)
+        assertEquals("rock", result.first().id)
+        assertEquals("Rock", result.first().name)
+    }
+
+    @Test
+    fun `getGenres does not append unknown when already present`() = runTest(testDispatcher) {
+        every {
+            mockMusicDao.getUniqueGenres(
+                any<List<String>>(),
+                any<Boolean>()
+            )
+        } returns flowOf(listOf("Unknown", " unknown "))
+        every {
+            mockMusicDao.hasUnknownGenre(
+                any<List<String>>(),
+                any<Boolean>()
+            )
+        } returns flowOf(true)
+
+        val result = musicRepository.getGenres().first()
+
+        assertEquals(1, result.size)
+        assertEquals(1, result.count { it.id == "unknown" })
+        assertEquals("Unknown", result.first().name)
+    }
+
+    @Test
+    fun `getGenres appends unknown only when needed`() = runTest(testDispatcher) {
+        every {
+            mockMusicDao.getUniqueGenres(
+                any<List<String>>(),
+                any<Boolean>()
+            )
+        } returns flowOf(listOf("Rock"))
+        every {
+            mockMusicDao.hasUnknownGenre(
+                any<List<String>>(),
+                any<Boolean>()
+            )
+        } returns flowOf(true)
+
+        val result = musicRepository.getGenres().first()
+
+        assertEquals(2, result.size)
+        assertTrue(result.any { it.id == "rock" })
+        assertEquals(1, result.count { it.id == "unknown" })
     }
 
     @Nested

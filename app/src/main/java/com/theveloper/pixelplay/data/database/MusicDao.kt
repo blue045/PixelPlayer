@@ -134,6 +134,9 @@ interface MusicDao {
     @Query("SELECT id FROM songs WHERE content_uri_string LIKE 'netease://%'")
     suspend fun getAllNeteaseSongIds(): List<Long>
 
+    @Query("SELECT id FROM songs WHERE content_uri_string LIKE 'gdrive://%'")
+    suspend fun getAllGDriveSongIds(): List<Long>
+
     @Transaction
     suspend fun deleteSongsAndRelatedData(songIds: List<Long>) {
         if (songIds.isEmpty()) return
@@ -152,6 +155,13 @@ interface MusicDao {
         val neteaseSongIds = getAllNeteaseSongIds()
         if (neteaseSongIds.isEmpty()) return
         deleteSongsAndRelatedData(neteaseSongIds)
+    }
+
+    @Transaction
+    suspend fun clearAllGDriveSongs() {
+        val gdriveSongIds = getAllGDriveSongIds()
+        if (gdriveSongIds.isEmpty()) return
+        deleteSongsAndRelatedData(gdriveSongIds)
     }
 
     @Transaction
@@ -229,9 +239,15 @@ interface MusicDao {
         applyDirectoryFilter: Boolean
     ): Flow<List<SongEntity>>
 
+    @Query("SELECT * FROM songs WHERE id IN (:songIds)")
+    suspend fun getSongsByIdsListSimple(songIds: List<Long>): List<SongEntity>
+
     @Query("SELECT * FROM songs WHERE id = :songId")
     fun getSongById(songId: Long): Flow<SongEntity?>
 
+    @Query("SELECT * FROM songs WHERE id = :songId")
+    suspend fun getSongByIdOnce(songId: Long): SongEntity?
+    
     @Query("SELECT * FROM songs WHERE file_path = :path LIMIT 1")
     suspend fun getSongByPath(path: String): SongEntity?
 
@@ -295,6 +311,32 @@ interface MusicDao {
         allowedParentDirs: List<String> = emptyList(),
         applyDirectoryFilter: Boolean = false
     ): Flow<List<SongEntity>>
+
+    @Query("""
+        SELECT id, parent_directory_path, title, album_art_uri_string FROM songs
+        WHERE (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))
+        AND (
+            :filterMode = 0
+            OR (
+                :filterMode = 1
+                AND content_uri_string NOT LIKE 'telegram://%'
+                AND content_uri_string NOT LIKE 'netease://%'
+            )
+            OR (
+                :filterMode = 2
+                AND (
+                    content_uri_string LIKE 'telegram://%'
+                    OR content_uri_string LIKE 'netease://%'
+                )
+            )
+        )
+        ORDER BY parent_directory_path ASC, title ASC
+    """)
+    fun getFolderSongs(
+        allowedParentDirs: List<String> = emptyList(),
+        applyDirectoryFilter: Boolean = false,
+        filterMode: Int
+    ): Flow<List<FolderSongRow>>
 
     @Query("""
         SELECT id FROM songs
@@ -632,16 +674,14 @@ interface MusicDao {
     suspend fun getAllArtistsListRaw(): List<ArtistEntity>
 
     @Query("""
-        SELECT DISTINCT artists.id, artists.name, artists.image_url,
-               (SELECT COUNT(*) FROM song_artist_cross_ref 
-                INNER JOIN songs ON song_artist_cross_ref.song_id = songs.id
-                WHERE song_artist_cross_ref.artist_id = artists.id
-                AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))) AS track_count
+        SELECT artists.id, artists.name, artists.image_url, artists.custom_image_uri,
+               COUNT(DISTINCT songs.id) AS track_count
         FROM artists
         INNER JOIN song_artist_cross_ref ON artists.id = song_artist_cross_ref.artist_id
         INNER JOIN songs ON song_artist_cross_ref.song_id = songs.id
         WHERE (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
         AND artists.name LIKE '%' || :query || '%'
+        GROUP BY artists.id
         ORDER BY artists.name ASC
     """)
     fun searchArtists(
@@ -668,6 +708,13 @@ interface MusicDao {
 
     @Query("SELECT MAX(id) FROM artists")
     suspend fun getMaxArtistId(): Long?
+
+    // --- Artist Custom Image Operations ---
+    @Query("UPDATE artists SET custom_image_uri = :uri WHERE id = :artistId")
+    suspend fun updateArtistCustomImage(artistId: Long, uri: String?)
+
+    @Query("SELECT custom_image_uri FROM artists WHERE id = :artistId")
+    suspend fun getArtistCustomImage(artistId: Long): String?
 
     // --- Genre Queries ---
     // Example: Get all songs for a specific genre
@@ -697,6 +744,29 @@ interface MusicDao {
     // Example: Get all unique genre names
     @Query("SELECT DISTINCT genre FROM songs WHERE genre IS NOT NULL AND genre != '' ORDER BY genre ASC")
     fun getUniqueGenres(): Flow<List<String>>
+
+    @Query("""
+        SELECT DISTINCT genre FROM songs
+        WHERE genre IS NOT NULL AND genre != ''
+        AND (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))
+        ORDER BY genre ASC
+    """)
+    fun getUniqueGenres(
+        allowedParentDirs: List<String>,
+        applyDirectoryFilter: Boolean
+    ): Flow<List<String>>
+
+    @Query("""
+        SELECT EXISTS(
+            SELECT 1 FROM songs
+            WHERE (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))
+            AND (genre IS NULL OR genre = '')
+        )
+    """)
+    fun hasUnknownGenre(
+        allowedParentDirs: List<String>,
+        applyDirectoryFilter: Boolean
+    ): Flow<Boolean>
 
     // --- Combined Queries (Potentially useful for more complex scenarios) ---
     // E.g., Get all album art URIs from songs (could be useful for theme preloading from SSoT)
@@ -857,9 +927,11 @@ interface MusicDao {
      * Get all artists with their song counts computed from the junction table.
      */
     @Query("""
-        SELECT artists.id, artists.name, artists.image_url,
-               (SELECT COUNT(*) FROM song_artist_cross_ref WHERE song_artist_cross_ref.artist_id = artists.id) AS track_count
+        SELECT artists.id, artists.name, artists.image_url, artists.custom_image_uri,
+               COUNT(DISTINCT song_artist_cross_ref.song_id) AS track_count
         FROM artists
+        LEFT JOIN song_artist_cross_ref ON artists.id = song_artist_cross_ref.artist_id
+        GROUP BY artists.id
         ORDER BY artists.name ASC
     """)
     fun getArtistsWithSongCounts(): Flow<List<ArtistEntity>>
@@ -868,26 +940,8 @@ interface MusicDao {
      * Get all artists with song counts, filtered by allowed directories.
      */
     @Query("""
-        SELECT DISTINCT artists.id, artists.name, artists.image_url,
-               (SELECT COUNT(*) FROM song_artist_cross_ref 
-                INNER JOIN songs ON song_artist_cross_ref.song_id = songs.id
-                WHERE song_artist_cross_ref.artist_id = artists.id
-                AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
-                AND (
-                    :filterMode = 0
-                    OR (
-                        :filterMode = 1
-                        AND songs.content_uri_string NOT LIKE 'telegram://%'
-                        AND songs.content_uri_string NOT LIKE 'netease://%'
-                    )
-                    OR (
-                        :filterMode = 2
-                        AND (
-                            songs.content_uri_string LIKE 'telegram://%'
-                            OR songs.content_uri_string LIKE 'netease://%'
-                        )
-                    )
-                )) AS track_count
+        SELECT artists.id, artists.name, artists.image_url, artists.custom_image_uri,
+               COUNT(DISTINCT songs.id) AS track_count
         FROM artists
         INNER JOIN song_artist_cross_ref ON artists.id = song_artist_cross_ref.artist_id
         INNER JOIN songs ON song_artist_cross_ref.song_id = songs.id
@@ -907,6 +961,7 @@ interface MusicDao {
                 )
             )
         )
+        GROUP BY artists.id
         ORDER BY artists.name ASC
     """)
     fun getArtistsWithSongCountsFiltered(

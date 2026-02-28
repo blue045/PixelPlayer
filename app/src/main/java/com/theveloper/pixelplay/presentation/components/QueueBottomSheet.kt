@@ -2,6 +2,7 @@ package com.theveloper.pixelplay.presentation.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -87,7 +88,7 @@ import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.LibraryAdd
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -165,14 +166,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxState
-import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.theveloper.pixelplay.presentation.components.scoped.QueueItemDismissGestureHandler
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import coil.size.Size
@@ -228,9 +230,9 @@ fun QueueBottomSheet(
     var showClearQueueDialog by remember { mutableStateOf(false) }
     var isFabExpanded by rememberSaveable { mutableStateOf(false) }
 
-    val infrequentPlayerState by viewModel.stablePlayerStateInfrequent.collectAsState()
+    val infrequentPlayerState by viewModel.stablePlayerState.collectAsStateWithLifecycle()
 
-    val albumColorSchemePair by viewModel.currentAlbumArtColorSchemePair.collectAsState()
+    val albumColorSchemePair by viewModel.currentAlbumArtColorSchemePair.collectAsStateWithLifecycle()
     val isDark = isSystemInDarkTheme()
     val albumColorScheme = remember(albumColorSchemePair, isDark) {
         albumColorSchemePair?.let { pair -> if (isDark) pair.dark else pair.light }
@@ -243,7 +245,7 @@ fun QueueBottomSheet(
     }
 
     // Read show queue history preference
-    val settingsState by settingsViewModel.uiState.collectAsState()
+    val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val showQueueHistory = settingsState.showQueueHistory
 
     // Offset to convert display indices to queue indices when history is hidden.
@@ -576,7 +578,7 @@ fun QueueBottomSheet(
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 if (updatedIsReordering || updatedReorderHandleInUse) return Offset.Zero
 
-                if (draggingSheetFromList && source == NestedScrollSource.Drag && available.y != 0f) {
+                if (draggingSheetFromList && source == NestedScrollSource.UserInput && available.y != 0f) {
                     listDragAccumulated += available.y
                     updatedOnQueueDrag(available.y)
                     return Offset(0f, available.y)
@@ -909,9 +911,9 @@ fun QueueBottomSheet(
                         elevation = FloatingActionButtonDefaults.elevation(0.dp) // Opcional: para igualar elevación flat
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Add,
+                            imageVector = Icons.Rounded.MoreHoriz,
                             contentDescription = "Queue actions",
-                            modifier = Modifier.rotate(fabRotation)
+                            //modifier = Modifier.rotate(fabRotation)
                         )
                     }
                 }
@@ -1008,22 +1010,56 @@ fun QueueBottomSheet(
                 }
             }
 
-//            Box(
-//                modifier = Modifier
-//                    .align(Alignment.BottomCenter)
-//                    .fillMaxWidth()
-//                    .height(30.dp)
-//                    .background(
-//                        brush = Brush.verticalGradient(
-//                            listOf(
-//                                Color.Transparent,
-//                                MaterialTheme.colorScheme.surfaceContainer
-//                            )
-//                        )
-//                    )
-//            ) {
-//
-//            }
+            // Undo bar for queue item removal
+            val playerUiState by viewModel.playerUiState.collectAsStateWithLifecycle()
+            AnimatedVisibility(
+                visible = playerUiState.showQueueItemUndoBar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
+                    )
+                    .zIndex(50f),
+                enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
+            ) {
+                val removedSongTitle = playerUiState.lastRemovedQueueSong?.title ?: ""
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = colors.inverseSurface,
+                    tonalElevation = 6.dp,
+                    shadowElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = removedSongTitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.inverseOnSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "removed",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.inverseOnSurface.copy(alpha = 0.7f),
+                        )
+                        TextButton(
+                            onClick = { viewModel.undoRemoveSongFromQueue() }
+                        ) {
+                            Text(
+                                text = "Undo",
+                                color = colors.inversePrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         if (showTimerOptions) {
@@ -1390,7 +1426,7 @@ fun SaveQueueAsPlaylistSheet(
                                     }
                                 }
                             },
-                            colors = TopAppBarDefaults.mediumTopAppBarColors(
+                            colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.surface,
                                 scrolledContainerColor = MaterialTheme.colorScheme.surface
                             ),
@@ -1834,145 +1870,108 @@ fun QueuePlaylistSongItem(
     val appHapticsConfig = LocalAppHapticsConfig.current
     val dismissScope = rememberCoroutineScope()
     val dismissEnabled = enableSwipeToDismiss && !isDragging
-    val dismissState = remember(swipeStateIdentity) {
-        SwipeToDismissBoxState(
-            initialValue = SwipeToDismissBoxValue.Settled,
-            positionalThreshold = { totalDistance -> totalDistance * 0.18f }
-        )
-    }
-    var dismissHandled by remember { mutableStateOf(false) }
-    LaunchedEffect(dismissEnabled) {
-        if (!dismissEnabled && dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
-            runCatching { dismissState.reset() }
-        }
-    }
-    LaunchedEffect(dismissState.currentValue) {
-        if (dismissState.currentValue == SwipeToDismissBoxValue.Settled) {
-            dismissHandled = false
-        }
+    val density = LocalDensity.current
+
+    // Custom gesture-based dismiss (tension → snap → free-drag → dismiss/spring-back)
+    val dismissOffsetAnimatable = remember(swipeStateIdentity) { Animatable(0f) }
+    var itemWidthPx by remember { mutableStateOf(0f) }
+
+    val dismissHandler = remember(swipeStateIdentity, dismissEnabled, itemWidthPx) {
+        if (dismissEnabled && itemWidthPx > 0f) {
+            QueueItemDismissGestureHandler(
+                scope = dismissScope,
+                density = density,
+                hapticView = hapticView,
+                appHapticsConfig = appHapticsConfig,
+                offsetAnimatable = dismissOffsetAnimatable,
+                itemWidthPx = itemWidthPx,
+                onDismiss = onDismissSong
+            )
+        } else null
     }
 
-    val isSwipeTargeted by remember {
-        derivedStateOf { dismissState.targetValue == SwipeToDismissBoxValue.EndToStart }
-    }
-    var dismissCommitPulse by remember { mutableStateOf(false) }
-
-    // Haptic feedback when crossing the dismiss threshold (both directions)
-    var wasTargeted by remember { mutableStateOf(false) }
-    LaunchedEffect(isSwipeTargeted) {
-        if (isSwipeTargeted && !wasTargeted) {
-            // Crossed threshold -> commit zone
-            performAppCompatHapticFeedback(
-                hapticView,
-                appHapticsConfig,
-                HapticFeedbackConstantsCompat.GESTURE_THRESHOLD_ACTIVATE
-            )
-        } else if (!isSwipeTargeted && wasTargeted) {
-            // Crossed back out of threshold
-            performAppCompatHapticFeedback(
-                hapticView,
-                appHapticsConfig,
-                HapticFeedbackConstantsCompat.GESTURE_THRESHOLD_DEACTIVATE
-            )
-        }
-        wasTargeted = isSwipeTargeted
-    }
+    val isSwipeTargeted = dismissHandler?.isInDismissZone == true
+    val currentOffsetPx = dismissOffsetAnimatable.value
+    val revealWidthPx = (-currentOffsetPx).coerceAtLeast(0f)
+    val revealProgress = if (density.density > 0f) {
+        (revealWidthPx / (56.dp.value * density.density)).coerceIn(0f, 1f)
+    } else 0f
 
     val dismissBackgroundColor by animateColorAsState(
         targetValue = if (isSwipeTargeted) colors.errorContainer else colors.errorContainer.copy(alpha = 0.82f),
         animationSpec = tween(durationMillis = 150),
         label = "dismissBackgroundColor"
     )
+    val dismissIconAlpha by animateFloatAsState(
+        targetValue = revealProgress * if (isSwipeTargeted) 1f else 0.88f,
+        animationSpec = tween(durationMillis = 120),
+        label = "dismissIconAlpha"
+    )
+    val dismissIconScale by animateFloatAsState(
+        targetValue = if (isSwipeTargeted) 1.08f else 0.95f,
+        animationSpec = tween(durationMillis = 120),
+        label = "dismissIconScale"
+    )
+    val dismissIconRotation by animateFloatAsState(
+        targetValue = 0f,
+        animationSpec = tween(durationMillis = 120),
+        label = "dismissIconRotation"
+    )
 
-    SwipeToDismissBox(
-        modifier = modifier.fillMaxWidth(),
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        enableDismissFromEndToStart = dismissEnabled,
-        backgroundContent = {
-            BoxWithConstraints(
+    // Track the actual rendered height of the Surface (foreground item) to size the background exactly.
+    var surfaceHeightPx by remember { mutableStateOf(0f) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { coordinates ->
+                val measuredWidth = coordinates.size.width.toFloat()
+                if (measuredWidth != itemWidthPx) itemWidthPx = measuredWidth
+            }
+    ) {
+        // Background reveal: stretches horizontally like before, height matches Surface exactly,
+        // clipped to CircleShape for fully-rounded ends.
+        if (revealWidthPx > 0f && surfaceHeightPx > 0f) {
+            val revealWidthDp = with(density) { revealWidthPx.toDp() }
+            val surfaceHeightDp = with(density) { surfaceHeightPx.toDp() }
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp)
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp)
+                    .height(surfaceHeightDp)
+                    .width(revealWidthDp)
+                    .clip(CircleShape)
+                    .background(dismissBackgroundColor),
+                contentAlignment = Alignment.CenterEnd
             ) {
-                val density = LocalDensity.current
-                val maxRevealWidthPx = constraints.maxWidth.toFloat()
-                val revealWidthPx = (-runCatching { dismissState.requireOffset() }
-                    .getOrDefault(0f)).coerceIn(0f, maxRevealWidthPx)
-                val revealWidthDp = with(density) { revealWidthPx.toDp() }
-                val revealProgress = (revealWidthPx / with(density) { 56.dp.toPx() })
-                    .coerceIn(0f, 1f)
-
-                val dismissIconAlpha by animateFloatAsState(
-                    targetValue = if (dismissCommitPulse) 1f else revealProgress * if (isSwipeTargeted) 1f else 0.88f,
-                    animationSpec = tween(durationMillis = 120),
-                    label = "dismissIconAlpha"
-                )
-                val dismissIconScale by animateFloatAsState(
-                    targetValue = when {
-                        dismissCommitPulse -> 1.28f
-                        isSwipeTargeted -> 1.08f
-                        else -> 0.95f
-                    },
-                    animationSpec = tween(durationMillis = 120),
-                    label = "dismissIconScale"
-                )
-                val dismissIconRotation by animateFloatAsState(
-                    targetValue = if (dismissCommitPulse) 90f else 0f,
-                    animationSpec = tween(durationMillis = 120),
-                    label = "dismissIconRotation"
-                )
-
-                Box(
+                Icon(
+                    painter = painterResource(R.drawable.rounded_close_24),
+                    contentDescription = "Dismiss song",
                     modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight()
-                        .width(revealWidthDp)
-                        .clip(itemShape)
-                        .background(dismissBackgroundColor),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.rounded_close_24),
-                        contentDescription = "Dismiss song",
-                        modifier = Modifier
-                            .padding(end = 20.dp)
-                            .graphicsLayer {
-                                alpha = dismissIconAlpha
-                                scaleX = dismissIconScale
-                                scaleY = dismissIconScale
-                                rotationZ = dismissIconRotation
-                            },
-                        tint = colors.onErrorContainer
-                    )
-                }
-            }
-        },
-        onDismiss = { direction ->
-            if (!dismissEnabled || direction != SwipeToDismissBoxValue.EndToStart || dismissHandled) {
-                return@SwipeToDismissBox
-            }
-            dismissHandled = true
-            performAppCompatHapticFeedback(
-                hapticView,
-                appHapticsConfig,
-                HapticFeedbackConstantsCompat.GESTURE_END
-            )
-            dismissCommitPulse = true
-            onDismissSong()
-            dismissScope.launch {
-                delay(140)
-                dismissCommitPulse = false
-                runCatching { dismissState.reset() }
+                        .padding(end = 16.dp)
+                        .graphicsLayer {
+                            alpha = dismissIconAlpha
+                            scaleX = dismissIconScale
+                            scaleY = dismissIconScale
+                            rotationZ = dismissIconRotation
+                        },
+                    tint = colors.onErrorContainer
+                )
             }
         }
-    ) {
+
+        // Foreground content with horizontal offset
         Surface(
             modifier = Modifier
+                .graphicsLayer { translationX = currentOffsetPx }
+                .onGloballyPositioned { coordinates ->
+                    val h = coordinates.size.height.toFloat()
+                    if (h != surfaceHeightPx) surfaceHeightPx = h
+                }
                 .padding(horizontal = 12.dp)
                 .clip(itemShape)
                 .clickable(
-                    enabled = dismissState.currentValue == SwipeToDismissBoxValue.Settled
+                    enabled = currentOffsetPx == 0f
                 ) {
                     onClick()
                 },
@@ -1985,96 +1984,123 @@ fun QueuePlaylistSongItem(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Drag handle is a DIRECT child of the Row, NOT inside the dismiss
+                // gesture area. This prevents detectHorizontalDragGestures from
+                // interfering with the reorderable library's drag detection.
                 AnimatedVisibility(visible = isDragHandleVisible) {
                     dragHandle()
                 }
 
-                val albumArtPadding by animateDpAsState(
-                    targetValue = if (isDragHandleVisible) 6.dp else 12.dp,
-                    label = "albumArtPadding"
-                )
-                Spacer(Modifier.width(albumArtPadding))
-
-                SmartImage(
-                    model = song.albumArtUriString,
-                    shape = albumShape,
-                    contentDescription = "Carátula",
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(albumShape),
-                    contentScale = ContentScale.Crop
-                )
-
-                Spacer(Modifier.width(16.dp))
-
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = if (isCurrentSong) colors.primary else colors.onSurface,
-                        fontWeight = if (isCurrentSong) FontWeight.Bold else FontWeight.Normal,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        song.displayArtist, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (isCurrentSong) colors.primary.copy(alpha = 0.8f) else colors.onSurfaceVariant
-                    )
-                }
-
-                if (isCurrentSong) {
-                    if (isPlaying != null) {
-                        PlayingEqIcon(
-                            modifier = Modifier
-                                .padding(start = 8.dp)
-                                .size(width = 18.dp, height = 16.dp),
-                            color = colors.secondary,
-                            isPlaying = isPlaying
+                // All remaining content is wrapped in a Row that carries the dismiss
+                // gesture. Because it is a SIBLING of the drag handle (not an ancestor),
+                // pointer events on the drag handle never reach this gesture detector.
+                val dismissGestureModifier = if (dismissEnabled && dismissHandler != null) {
+                    Modifier.pointerInput(swipeStateIdentity, dismissHandler) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { dismissHandler.onDragStart() },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                dismissHandler.onHorizontalDrag(dragAmount)
+                            },
+                            onDragEnd = { dismissHandler.onDragEnd() },
+                            onDragCancel = { dismissHandler.onDragCancel() }
                         )
-                        Spacer(Modifier.width(4.dp))
-                        if (!isRemoveButtonVisible) {
-                            Spacer(Modifier.width(8.dp))
+                    }
+                } else Modifier
+
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(dismissGestureModifier),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val albumArtPadding by animateDpAsState(
+                        targetValue = if (isDragHandleVisible) 6.dp else 12.dp,
+                        label = "albumArtPadding"
+                    )
+                    Spacer(Modifier.width(albumArtPadding))
+
+                    SmartImage(
+                        model = song.albumArtUriString,
+                        shape = albumShape,
+                        contentDescription = "Carátula",
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(albumShape),
+                        contentScale = ContentScale.Crop
+                    )
+
+                    Spacer(Modifier.width(16.dp))
+
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (isCurrentSong) colors.primary else colors.onSurface,
+                            fontWeight = if (isCurrentSong) FontWeight.Bold else FontWeight.Normal,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            song.displayArtist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isCurrentSong) colors.primary.copy(alpha = 0.8f) else colors.onSurfaceVariant
+                        )
+                    }
+
+                    if (isCurrentSong) {
+                        if (isPlaying != null) {
+                            PlayingEqIcon(
+                                modifier = Modifier
+                                    .padding(start = 8.dp)
+                                    .size(width = 18.dp, height = 16.dp),
+                                color = colors.secondary,
+                                isPlaying = isPlaying
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            if (!isRemoveButtonVisible) {
+                                Spacer(Modifier.width(8.dp))
+                            }
+                        }
+                    } else {
+                        Spacer(Modifier.width(8.dp))
+                    }
+
+                    if (isFromPlaylist) {
+                        FilledIconButton(
+                            onClick = { onMoreOptionsClick(song) },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = mvContainerColor,
+                                contentColor = mvContentColor
+                            ),
+                            modifier = Modifier
+                                .size(36.dp)
+                                .padding(end = 14.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MoreVert,
+                                contentDescription = "More options for ${song.title}",
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
                     }
-                } else {
-                    Spacer(Modifier.width(8.dp))
-                }
 
-                if (isFromPlaylist) {
-                    FilledIconButton(
-                        onClick = { onMoreOptionsClick(song) },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = mvContainerColor,
-                            contentColor = mvContentColor
-                        ),
-                        modifier = Modifier
-                            .size(36.dp)
-                            .padding(end = 14.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.MoreVert,
-                            contentDescription = "More options for ${song.title}",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-
-                AnimatedVisibility(visible = isRemoveButtonVisible && !enableSwipeToDismiss) {
-                    FilledIconButton(
-                        onClick = onRemoveClick,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = colors.surfaceContainer,
-                            contentColor = colors.onSurface
-                        ),
-                        modifier = Modifier
-                            .width(40.dp)
-                            .height(40.dp)
-                            .padding(start = 4.dp, end = 8.dp)
-                    ) {
-                        Icon(
-                            modifier = Modifier.size(18.dp),
-                            painter = painterResource(R.drawable.rounded_close_24),
-                            contentDescription = "Remove from playlist",
-                        )
+                    AnimatedVisibility(visible = isRemoveButtonVisible && !enableSwipeToDismiss) {
+                        FilledIconButton(
+                            onClick = onRemoveClick,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = colors.surfaceContainer,
+                                contentColor = colors.onSurface
+                            ),
+                            modifier = Modifier
+                                .width(40.dp)
+                                .height(40.dp)
+                                .padding(start = 4.dp, end = 8.dp)
+                        ) {
+                            Icon(
+                                modifier = Modifier.size(18.dp),
+                                painter = painterResource(R.drawable.rounded_close_24),
+                                contentDescription = "Remove from playlist",
+                            )
+                        }
                     }
                 }
             }

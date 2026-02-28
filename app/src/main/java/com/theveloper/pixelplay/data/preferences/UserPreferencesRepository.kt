@@ -189,12 +189,28 @@ constructor(
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
         val IMMERSIVE_LYRICS_ENABLED = booleanPreferencesKey("immersive_lyrics_enabled")
         val IMMERSIVE_LYRICS_TIMEOUT = longPreferencesKey("immersive_lyrics_timeout")
+        val USE_ANIMATED_LYRICS = booleanPreferencesKey("use_animated_lyrics")
         
         // Genre View Preference
         val IS_GENRE_GRID_VIEW = booleanPreferencesKey("is_genre_grid_view")
         
         // Album View Preference
         val IS_ALBUMS_LIST_VIEW = booleanPreferencesKey("is_albums_list_view")
+
+        // Collage Pattern
+        val COLLAGE_PATTERN = stringPreferencesKey("collage_pattern")
+        val COLLAGE_AUTO_ROTATE = booleanPreferencesKey("collage_auto_rotate")
+
+        // Quick Settings / Last Playlist
+        val LAST_PLAYLIST_ID = stringPreferencesKey("last_playlist_id")
+        val LAST_PLAYLIST_NAME = stringPreferencesKey("last_playlist_name")
+
+        // Smart Duration Filtering
+        val MIN_SONG_DURATION = intPreferencesKey("min_song_duration_ms")
+
+        // ReplayGain
+        val REPLAYGAIN_ENABLED = booleanPreferencesKey("replaygain_enabled")
+        val REPLAYGAIN_USE_ALBUM_GAIN = booleanPreferencesKey("replaygain_use_album_gain")
     }
 
     val appRebrandDialogShownFlow: Flow<Boolean> =
@@ -210,7 +226,7 @@ constructor(
 
     val isCrossfadeEnabledFlow: Flow<Boolean> =
             dataStore.data.map { preferences ->
-                preferences[PreferencesKeys.IS_CROSSFADE_ENABLED] ?: true
+                preferences[PreferencesKeys.IS_CROSSFADE_ENABLED] ?: false
             }
 
     suspend fun setCrossfadeEnabled(enabled: Boolean) {
@@ -318,12 +334,12 @@ constructor(
 
     val crossfadeDurationFlow: Flow<Int> =
             dataStore.data.map { preferences ->
-                preferences[PreferencesKeys.CROSSFADE_DURATION] ?: 6000
+                (preferences[PreferencesKeys.CROSSFADE_DURATION] ?: 2000).coerceIn(1000, 12000)
             }
 
     suspend fun setCrossfadeDuration(duration: Int) {
         dataStore.edit { preferences ->
-            preferences[PreferencesKeys.CROSSFADE_DURATION] = duration
+            preferences[PreferencesKeys.CROSSFADE_DURATION] = duration.coerceIn(1000, 12000)
         }
     }
 
@@ -599,7 +615,7 @@ constructor(
 
     val globalTransitionSettingsFlow: Flow<TransitionSettings> =
             dataStore.data.map { preferences ->
-                val duration = preferences[PreferencesKeys.CROSSFADE_DURATION] ?: 6000
+                val duration = (preferences[PreferencesKeys.CROSSFADE_DURATION] ?: 2000).coerceIn(1000, 12000)
                 val settings =
                         preferences[PreferencesKeys.GLOBAL_TRANSITION_SETTINGS]?.let { jsonString ->
                             try {
@@ -692,6 +708,52 @@ constructor(
             preferences[PreferencesKeys.LAST_DAILY_MIX_UPDATE] = timestamp
         }
     }
+
+    // ===== Smart Duration Filtering =====
+
+    /** Minimum song duration in milliseconds. Default 10000ms (10 seconds). */
+    val minSongDurationFlow: Flow<Int> =
+        dataStore.data.map { preferences ->
+            (preferences[PreferencesKeys.MIN_SONG_DURATION] ?: 10000).coerceIn(0, 120000)
+        }
+
+    suspend fun setMinSongDuration(durationMs: Int) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.MIN_SONG_DURATION] = durationMs.coerceIn(0, 120000)
+        }
+    }
+
+    suspend fun getMinSongDuration(): Int {
+        return minSongDurationFlow.first()
+    }
+
+    // ===== End Smart Duration Filtering =====
+
+    // ===== ReplayGain =====
+
+    val replayGainEnabledFlow: Flow<Boolean> =
+        dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.REPLAYGAIN_ENABLED] ?: false
+        }
+
+    val replayGainUseAlbumGainFlow: Flow<Boolean> =
+        dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.REPLAYGAIN_USE_ALBUM_GAIN] ?: false
+        }
+
+    suspend fun setReplayGainEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.REPLAYGAIN_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setReplayGainUseAlbumGain(useAlbumGain: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.REPLAYGAIN_USE_ALBUM_GAIN] = useAlbumGain
+        }
+    }
+
+    // ===== End ReplayGain =====
 
     val allowedDirectoriesFlow: Flow<Set<String>> =
             dataStore.data.map { preferences ->
@@ -837,12 +899,14 @@ constructor(
             coverShapeDetail1: Float? = null,
             coverShapeDetail2: Float? = null,
             coverShapeDetail3: Float? = null,
-            coverShapeDetail4: Float? = null
+            coverShapeDetail4: Float? = null,
+            customId: String? = null,  // Support custom ID for NetEase sync de-duplication
+            source: String = "LOCAL"   // Source tag
     ): Playlist {
         val currentPlaylists = userPlaylistsFlow.first().toMutableList()
         val newPlaylist =
                 Playlist(
-                        id = UUID.randomUUID().toString(),
+                        id = customId ?: UUID.randomUUID().toString(),  // Use custom ID or UUID
                         name = name,
                         songIds = songIds,
                         isAiGenerated = isAiGenerated,
@@ -854,7 +918,8 @@ constructor(
                         coverShapeDetail1 = coverShapeDetail1,
                         coverShapeDetail2 = coverShapeDetail2,
                         coverShapeDetail3 = coverShapeDetail3,
-                        coverShapeDetail4 = coverShapeDetail4
+                        coverShapeDetail4 = coverShapeDetail4,
+                        source = source // Set source
                 )
         currentPlaylists.add(newPlaylist)
         savePlaylists(currentPlaylists)
@@ -1469,6 +1534,17 @@ constructor(
         }
     }
 
+    val useAnimatedLyricsFlow: Flow<Boolean> = dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.USE_ANIMATED_LYRICS] ?: false
+        }
+
+    suspend fun setUseAnimatedLyrics(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.USE_ANIMATED_LYRICS] = enabled
+        }
+    }
+
     val libraryTabsOrderFlow: Flow<String?> = dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.LIBRARY_TABS_ORDER]
@@ -1914,6 +1990,45 @@ constructor(
                     }
                 }
             }
+        }
+    }
+
+    // --- Collage Pattern ---
+
+    val collagePatternFlow: Flow<CollagePattern> =
+        dataStore.data.map { preferences ->
+            CollagePattern.fromStorageKey(preferences[PreferencesKeys.COLLAGE_PATTERN])
+        }
+
+    suspend fun setCollagePattern(pattern: CollagePattern) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.COLLAGE_PATTERN] = pattern.storageKey
+        }
+    }
+
+    val collageAutoRotateFlow: Flow<Boolean> =
+        dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.COLLAGE_AUTO_ROTATE] ?: false
+        }
+
+    suspend fun setCollageAutoRotate(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.COLLAGE_AUTO_ROTATE] = enabled
+        }
+    }
+
+    // --- Quick Settings: Last Playlist ---
+
+    val lastPlaylistIdFlow: Flow<String?> =
+        dataStore.data.map { it[PreferencesKeys.LAST_PLAYLIST_ID] }
+
+    val lastPlaylistNameFlow: Flow<String?> =
+        dataStore.data.map { it[PreferencesKeys.LAST_PLAYLIST_NAME] }
+
+    suspend fun setLastPlaylist(playlistId: String, playlistName: String) {
+        dataStore.edit {
+            it[PreferencesKeys.LAST_PLAYLIST_ID] = playlistId
+            it[PreferencesKeys.LAST_PLAYLIST_NAME] = playlistName
         }
     }
 }
