@@ -57,6 +57,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -114,7 +115,7 @@ class MusicRepositoryImpl @Inject constructor(
             userPreferencesRepository.blockedDirectoriesFlow
         ) { allowedDirs, blockedDirs ->
             allowedDirs to blockedDirs
-        }.flatMapLatest { (allowedDirs, blockedDirs) ->
+        }.distinctUntilChanged().flatMapLatest { (allowedDirs, blockedDirs) ->
             flow {
                 val (allowedParentDirs, applyDirectoryFilter) =
                     computeAllowedDirs(allowedDirs, blockedDirs)
@@ -127,7 +128,7 @@ class MusicRepositoryImpl @Inject constructor(
             }.flatMapLatest { it }
         }.map { entities ->
             entities.map { it.toSong() }
-        }.flowOn(Dispatchers.IO)
+        }.distinctUntilChanged().flowOn(Dispatchers.IO)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -233,13 +234,14 @@ class MusicRepositoryImpl @Inject constructor(
             userPreferencesRepository.blockedDirectoriesFlow
         ) { allowedDirs, blockedDirs ->
             allowedDirs to blockedDirs
-        }.flatMapLatest { (allowedDirs, blockedDirs) ->
+        }.distinctUntilChanged().flatMapLatest { (allowedDirs, blockedDirs) ->
             val (allowedParentDirs, applyFilter) = computeAllowedDirs(allowedDirs, blockedDirs)
             musicDao.getArtistsWithSongCountsFiltered(
                 allowedParentDirs = allowedParentDirs,
                 applyDirectoryFilter = applyFilter,
                 filterMode = storageFilter.toFilterMode()
             )
+                .distinctUntilChanged()
                 .map { entities ->
                     val artists = entities.map { it.toArtist() }
                     // Trigger prefetch for missing images (non-blocking)

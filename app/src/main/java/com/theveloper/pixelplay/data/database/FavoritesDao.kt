@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Dao
 interface FavoritesDao {
@@ -21,7 +22,9 @@ interface FavoritesDao {
     suspend fun isFavorite(songId: Long): Boolean?
 
     @Query("SELECT songId FROM favorites WHERE isFavorite = 1")
-    fun getFavoriteSongIds(): Flow<List<Long>>
+    fun getFavoriteSongIdsRaw(): Flow<List<Long>>
+
+    fun getFavoriteSongIds(): Flow<List<Long>> = getFavoriteSongIdsRaw().distinctUntilChanged()
 
     @Query("SELECT songId FROM favorites WHERE isFavorite = 1")
     suspend fun getFavoriteSongIdsOnce(): List<Long>
