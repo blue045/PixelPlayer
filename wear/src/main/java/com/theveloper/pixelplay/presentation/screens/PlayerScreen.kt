@@ -3,12 +3,10 @@ package com.theveloper.pixelplay.presentation.screens
 import android.graphics.Bitmap
 import android.os.SystemClock
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -17,7 +15,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -33,17 +30,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Repeat
-import androidx.compose.material.icons.rounded.RepeatOne
-import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,11 +53,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -99,6 +93,7 @@ import com.google.android.horologist.compose.layout.ScalingLazyColumn
 import com.google.android.horologist.compose.layout.rememberResponsiveColumnState
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.components.AlwaysOnScalingPositionIndicator
+import com.theveloper.pixelplay.presentation.components.outputRouteIcon
 import com.theveloper.pixelplay.presentation.components.WearTopTimeText
 import com.theveloper.pixelplay.presentation.shapes.RoundedStarShape
 import com.theveloper.pixelplay.presentation.theme.LocalWearPalette
@@ -108,22 +103,26 @@ import com.theveloper.pixelplay.shared.WearPlayerState
 import androidx.core.graphics.ColorUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 @Composable
 fun PlayerScreen(
-    onBrowseClick: () -> Unit = {},
+    onBrowseCategoryClick: (browseType: String, title: String) -> Unit = { _, _ -> },
     onVolumeClick: () -> Unit = {},
     onOutputClick: () -> Unit = {},
-    onQueueClick: () -> Unit = onBrowseClick,
+    onMoreClick: () -> Unit = {},
+    onQueueClick: () -> Unit = {},
     viewModel: WearPlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.playerState.collectAsState()
     val isPhoneConnected by viewModel.isPhoneConnected.collectAsState()
     val isWatchOutputSelected by viewModel.isWatchOutputSelected.collectAsState()
+    val activeOutputRouteType by viewModel.activeOutputRouteType.collectAsState()
     val albumArt by viewModel.albumArt.collectAsState()
 
     PlayerContent(
@@ -134,12 +133,11 @@ fun PlayerScreen(
         onTogglePlayPause = viewModel::togglePlayPause,
         onNext = viewModel::next,
         onPrevious = viewModel::previous,
-        onToggleFavorite = viewModel::toggleFavorite,
-        onToggleShuffle = viewModel::toggleShuffle,
-        onCycleRepeat = viewModel::cycleRepeat,
-        onBrowseClick = onBrowseClick,
+        activeOutputRouteType = activeOutputRouteType,
+        onBrowseCategoryClick = onBrowseCategoryClick,
         onVolumeClick = onVolumeClick,
         onOutputClick = onOutputClick,
+        onMoreClick = onMoreClick,
         onQueueClick = onQueueClick,
     )
 }
@@ -153,12 +151,11 @@ private fun PlayerContent(
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onToggleShuffle: () -> Unit,
-    onCycleRepeat: () -> Unit,
-    onBrowseClick: () -> Unit,
+    activeOutputRouteType: String,
+    onBrowseCategoryClick: (browseType: String, title: String) -> Unit,
     onVolumeClick: () -> Unit,
     onOutputClick: () -> Unit,
+    onMoreClick: () -> Unit,
     onQueueClick: () -> Unit,
 ) {
     val palette = LocalWearPalette.current
@@ -198,20 +195,18 @@ private fun PlayerContent(
                         onTogglePlayPause = onTogglePlayPause,
                         onNext = onNext,
                         onPrevious = onPrevious,
-                        onToggleFavorite = onToggleFavorite,
-                        onToggleShuffle = onToggleShuffle,
-                        onCycleRepeat = onCycleRepeat,
+                        activeOutputRouteType = activeOutputRouteType,
+                        onVolumeClick = onVolumeClick,
+                        onOutputClick = onOutputClick,
+                        onMoreClick = onMoreClick,
                         onQueueClick = onQueueClick,
                         onQueueShortcutRevealChanged = { mainPageQueueReveal = it },
                     )
                 }
 
                 else -> {
-                    UtilityPage(
-                        enabled = true,
-                        onBrowseClick = onBrowseClick,
-                        onVolumeClick = onVolumeClick,
-                        onOutputClick = onOutputClick,
+                    BrowseScreen(
+                        onCategoryClick = onBrowseCategoryClick,
                     )
                 }
             }
@@ -230,7 +225,7 @@ private fun PlayerContent(
             )
         }
 
-        if (pagerState.currentPage != 0) {
+        if (pagerState.currentPage == 1) {
             WearTopTimeText(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -758,9 +753,10 @@ private fun MainPlayerPage(
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onToggleShuffle: () -> Unit,
-    onCycleRepeat: () -> Unit,
+    activeOutputRouteType: String,
+    onVolumeClick: () -> Unit,
+    onOutputClick: () -> Unit,
+    onMoreClick: () -> Unit,
     onQueueClick: () -> Unit,
     onQueueShortcutRevealChanged: (Float) -> Unit,
 ) {
@@ -848,21 +844,21 @@ private fun MainPlayerPage(
                 )
             }
 
-            if (!isWatchOutputSelected) {
-                item {
-                    SecondaryControlsRow(
-                        isFavorite = state.isFavorite,
-                        isShuffleEnabled = state.isShuffleEnabled,
-                        repeatMode = state.repeatMode,
-                        enabled = isPhoneConnected && !state.isEmpty,
-                        onToggleFavorite = onToggleFavorite,
-                        onToggleShuffle = onToggleShuffle,
-                        onCycleRepeat = onCycleRepeat,
-                        favoriteActiveColor = palette.favoriteActive,
-                        shuffleActiveColor = palette.shuffleActive,
-                        repeatActiveColor = palette.repeatActive,
-                    )
-                }
+            item {
+                SecondaryControlsRow(
+                    volumeEnabled = isPhoneConnected || isWatchOutputSelected,
+                    deviceEnabled = isPhoneConnected || isWatchOutputSelected,
+                    deviceRouteType = if (isWatchOutputSelected) {
+                        com.theveloper.pixelplay.shared.WearVolumeState.ROUTE_TYPE_WATCH
+                    } else {
+                        activeOutputRouteType
+                    },
+                    moreEnabled = true,
+                    onVolumeClick = onVolumeClick,
+                    onOutputClick = onOutputClick,
+                    onMoreClick = onMoreClick,
+                    deviceActiveColor = palette.shuffleActive,
+                )
             }
 
             item { Spacer(modifier = Modifier.height(50.dp)) }
@@ -964,15 +960,15 @@ private fun HeaderBlock(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        if (isWatchOutputSelected) {
-            Text(
-                text = "On watch",
-                style = MaterialTheme.typography.caption3,
-                color = palette.shuffleActive.copy(alpha = 0.85f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+//        if (isWatchOutputSelected) {
+//            Text(
+//                text = "On watch",
+//                style = MaterialTheme.typography.caption3,
+//                color = palette.shuffleActive.copy(alpha = 0.85f),
+//                textAlign = TextAlign.Center,
+//                modifier = Modifier.fillMaxWidth(),
+//            )
+//        }
     }
 }
 
@@ -1034,8 +1030,8 @@ private fun FlattenedControlButton(
     height: Dp,
 ) {
     val palette = LocalWearPalette.current
-    val container = if (enabled) palette.controlContainer else palette.controlDisabledContainer
-    val tint = if (enabled) palette.controlContent else palette.controlDisabledContent
+    val container = if (enabled) palette.transportContainer else palette.controlDisabledContainer
+    val tint = if (enabled) palette.transportContent else palette.controlDisabledContent
 
     Box(
         modifier = Modifier
@@ -1068,19 +1064,25 @@ private fun CenterPlayButton(
         animationSpec = spring(),
         label = "playStarCurve",
     )
-    val infiniteTransition = rememberInfiniteTransition(label = "playStarSpin")
-    val spinningRotation by infiniteTransition.animateFloat(
-        initialValue = 360f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = 13800,
-                easing = LinearEasing,
-            ),
-        ),
-        label = "playStarRotationInfinite",
-    )
-    val animatedRotation = if (isPlaying) spinningRotation else 0f
+    val rotation = remember { Animatable(0f) }
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            while (true) {
+                val current = rotation.value
+                rotation.animateTo(
+                    targetValue = current + 360f,
+                    animationSpec = tween(
+                        durationMillis = 13800,
+                        easing = LinearEasing,
+                    ),
+                )
+                if (rotation.value >= 3600f) {
+                    rotation.snapTo(rotation.value % 360f)
+                }
+            }
+        }
+    }
+    val animatedRotation = rotation.value
     val animatedSize by animateDpAsState(
         targetValue = if (isPlaying) 60.dp else 56.dp,
         animationSpec = spring(),
@@ -1105,31 +1107,67 @@ private fun CenterPlayButton(
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 4.dp.toPx()
-            val diameter = size.minDimension - strokeWidth
-            val arcTopLeft = Offset(
-                x = (size.width - diameter) / 2f,
-                y = (size.height - diameter) / 2f,
+            val ringInset = (strokeWidth / 2f) + 1.5.dp.toPx()
+            val ringRadius = ((size.minDimension - (ringInset * 2f)) / 2f).coerceAtLeast(0f)
+            val ringPath = buildPlayButtonRingPath(
+                centerX = size.width / 2f,
+                centerY = size.height / 2f,
+                radius = ringRadius,
+                curve = animatedCurve,
+                rotation = animatedRotation,
             )
-            val arcSize = Size(diameter, diameter)
+            val ringStroke = Stroke(
+                width = strokeWidth,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            )
 
-            drawArc(
+            drawPath(
+                path = ringPath,
                 color = palette.chipContainer.copy(alpha = 0.62f),
-                startAngle = -90f,
-                sweepAngle = 360f,
-                useCenter = false,
-                topLeft = arcTopLeft,
-                size = arcSize,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+                style = ringStroke,
             )
-            drawArc(
-                color = palette.controlContainer.copy(alpha = if (enabled) 1f else 0.95f),
-                startAngle = -90f,
-                sweepAngle = 360f * ringProgress,
-                useCenter = false,
-                topLeft = arcTopLeft,
-                size = arcSize,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-            )
+
+            val pathMeasure = PathMeasure().apply {
+                setPath(ringPath, forceClosed = true)
+            }
+            val pathLength = pathMeasure.length
+            val progressLength = pathLength * ringProgress
+            if (progressLength > 0f && pathLength > 0f) {
+                val normalizedRotation = ((animatedRotation % 360f) + 360f) % 360f
+                val startDistance = (pathLength * (normalizedRotation / 360f)).coerceIn(0f, pathLength)
+                val boundedProgress = progressLength.coerceAtMost(pathLength)
+                val progressPath = Path()
+
+                if (startDistance + boundedProgress <= pathLength) {
+                    pathMeasure.getSegment(
+                        startDistance = startDistance,
+                        stopDistance = startDistance + boundedProgress,
+                        destination = progressPath,
+                        startWithMoveTo = true,
+                    )
+                } else {
+                    val firstLeg = pathLength - startDistance
+                    pathMeasure.getSegment(
+                        startDistance = startDistance,
+                        stopDistance = pathLength,
+                        destination = progressPath,
+                        startWithMoveTo = true,
+                    )
+                    pathMeasure.getSegment(
+                        startDistance = 0f,
+                        stopDistance = (boundedProgress - firstLeg).coerceAtLeast(0f),
+                        destination = progressPath,
+                        startWithMoveTo = false,
+                    )
+                }
+
+                drawPath(
+                    path = progressPath,
+                    color = palette.controlContainer.copy(alpha = if (enabled) 1f else 0.95f),
+                    style = ringStroke,
+                )
+            }
         }
 
         Box(
@@ -1156,18 +1194,54 @@ private fun CenterPlayButton(
     }
 }
 
+private fun buildPlayButtonRingPath(
+    centerX: Float,
+    centerY: Float,
+    radius: Float,
+    curve: Float,
+    rotation: Float,
+    sides: Int = 8,
+    steps: Int = 320,
+): Path {
+    val twoPi = Math.PI * 2.0
+    val startAngle = -Math.PI / 2.0
+    val angleStep = twoPi / steps.toDouble()
+    val rotationRad = Math.toRadians(rotation.toDouble())
+    val ringPath = Path()
+    val boundedCurve = curve.coerceIn(0f, 0.12f)
+    val boundedRadius = radius.coerceAtLeast(0f)
+
+    fun pointAt(t: Double): Offset {
+        val angle = startAngle + t
+        val wave = 1f + (boundedCurve * cos((sides * angle)).toFloat())
+        val distance = boundedRadius * wave
+        val x = centerX + (distance * cos(angle - rotationRad).toFloat())
+        val y = centerY + (distance * sin(angle - rotationRad).toFloat())
+        return Offset(x, y)
+    }
+
+    val firstPoint = pointAt(0.0)
+    ringPath.moveTo(firstPoint.x, firstPoint.y)
+    var t = angleStep
+    while (t <= twoPi) {
+        val point = pointAt(t)
+        ringPath.lineTo(point.x, point.y)
+        t += angleStep
+    }
+    ringPath.close()
+    return ringPath
+}
+
 @Composable
 private fun SecondaryControlsRow(
-    isFavorite: Boolean,
-    isShuffleEnabled: Boolean,
-    repeatMode: Int,
-    enabled: Boolean,
-    onToggleFavorite: () -> Unit,
-    onToggleShuffle: () -> Unit,
-    onCycleRepeat: () -> Unit,
-    favoriteActiveColor: Color,
-    shuffleActiveColor: Color,
-    repeatActiveColor: Color,
+    volumeEnabled: Boolean,
+    deviceEnabled: Boolean,
+    deviceRouteType: String,
+    moreEnabled: Boolean,
+    onVolumeClick: () -> Unit,
+    onOutputClick: () -> Unit,
+    onMoreClick: () -> Unit,
+    deviceActiveColor: Color,
 ) {
     Row(
         modifier = Modifier
@@ -1181,32 +1255,32 @@ private fun SecondaryControlsRow(
     ) {
         SecondaryActionSlot(lower = false) {
             SecondaryActionButton(
-                icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                enabled = enabled,
-                active = isFavorite,
-                activeColor = favoriteActiveColor,
-                onClick = onToggleFavorite,
-                contentDescription = "Like",
+                icon = Icons.AutoMirrored.Rounded.VolumeUp,
+                enabled = volumeEnabled,
+                active = false,
+                activeColor = deviceActiveColor,
+                onClick = onVolumeClick,
+                contentDescription = "Volume",
             )
         }
         SecondaryActionSlot(lower = true) {
             SecondaryActionButton(
-                icon = Icons.Rounded.Shuffle,
-                enabled = enabled,
-                active = isShuffleEnabled,
-                activeColor = shuffleActiveColor,
-                onClick = onToggleShuffle,
-                contentDescription = "Shuffle",
+                icon = outputRouteIcon(deviceRouteType),
+                enabled = deviceEnabled,
+                active = deviceRouteType == com.theveloper.pixelplay.shared.WearVolumeState.ROUTE_TYPE_WATCH,
+                activeColor = deviceActiveColor,
+                onClick = onOutputClick,
+                contentDescription = "Output device",
             )
         }
         SecondaryActionSlot(lower = false) {
             SecondaryActionButton(
-                icon = if (repeatMode == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                enabled = enabled,
-                active = repeatMode != 0,
-                activeColor = repeatActiveColor,
-                onClick = onCycleRepeat,
-                contentDescription = "Repeat",
+                icon = Icons.Rounded.MoreVert,
+                enabled = moreEnabled,
+                active = false,
+                activeColor = deviceActiveColor,
+                onClick = onMoreClick,
+                contentDescription = "More options",
             )
         }
     }
@@ -1321,101 +1395,6 @@ private fun BottomQueueShortcut(
             imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
             contentDescription = "Queue",
             modifier = Modifier.size(iconSize),
-        )
-    }
-}
-
-@Composable
-private fun UtilityPage(
-    enabled: Boolean,
-    onBrowseClick: () -> Unit,
-    onVolumeClick: () -> Unit,
-    onOutputClick: () -> Unit,
-) {
-    BoxWithConstraints(
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        val maxSafeWidth = maxWidth - 10.dp
-        val middleWidth = (maxWidth * 0.84f).let { width ->
-            if (width > maxSafeWidth) maxSafeWidth else width
-        }
-        val sideWidth = (middleWidth * 0.82f).let { width ->
-            if (width < 128.dp) 128.dp else width
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 30.dp, bottom = 22.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            UtilityPillButton(
-                icon = Icons.Rounded.PhoneAndroid,
-                label = "Device",
-                enabled = enabled,
-                width = sideWidth,
-                onClick = onOutputClick,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            UtilityPillButton(
-                icon = Icons.Rounded.LibraryMusic,
-                label = "Library",
-                enabled = enabled,
-                width = middleWidth,
-                onClick = onBrowseClick,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            UtilityPillButton(
-                icon = Icons.AutoMirrored.Rounded.VolumeUp,
-                label = "Volume",
-                enabled = enabled,
-                width = sideWidth,
-                onClick = onVolumeClick,
-            )
-        }
-    }
-}
-
-@Composable
-private fun UtilityPillButton(
-    icon: ImageVector,
-    label: String,
-    enabled: Boolean,
-    width: Dp,
-    onClick: () -> Unit,
-) {
-    val palette = LocalWearPalette.current
-    val container = if (enabled) palette.chipContainer else palette.controlDisabledContainer
-    val tint = if (enabled) palette.chipContent else palette.controlDisabledContent
-
-    Row(
-        modifier = Modifier
-            .width(width)
-            .height(46.dp)
-            .clip(RoundedCornerShape(25.dp))
-            .background(container)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = tint,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = label,
-            color = tint,
-            style = MaterialTheme.typography.button,
-            maxLines = 1,
         )
     }
 }
