@@ -23,6 +23,7 @@ import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import com.google.common.util.concurrent.ListenableFuture
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.session.SessionCommand
@@ -107,6 +108,7 @@ class WearCommandReceiver : WearableListenerService() {
         private const val MAX_SONGS = 500
         private const val MAX_ALBUMS = 200
         private const val MAX_ARTISTS = 200
+        private val EXPLICIT_PLAY_RETRY_DELAYS_MS = longArrayOf(180L, 700L)
         private const val TRANSFER_CHUNK_SIZE = 8192
         private const val PROGRESS_UPDATE_INTERVAL_BYTES = 65536L
         private const val TRANSFER_ARTWORK_MAX_DIMENSION = 1024
@@ -290,9 +292,10 @@ class WearCommandReceiver : WearableListenerService() {
 
                 val mediaItem = MediaItemBuilder.build(song)
                 getOrBuildMediaController { controller ->
-                    controller.setMediaItem(mediaItem)
-                    controller.prepare()
-                    controller.play()
+                    startExplicitPlayback(controller, song.id) {
+                        controller.setMediaItem(mediaItem)
+                        controller.prepare()
+                    }
                     scope.launch {
                         sendPlaybackResult(
                             nodeId = targetNodeId,
@@ -432,8 +435,9 @@ class WearCommandReceiver : WearableListenerService() {
                 Timber.tag(TAG).w("PLAY_QUEUE_INDEX out of bounds: index=$index count=$itemCount")
                 return@getOrBuildMediaController
             }
+            val targetMediaId = controller.getMediaItemAt(index).mediaId
             controller.seekTo(index, C.TIME_UNSET)
-            controller.play()
+            startExplicitPlayback(controller, targetMediaId)
             Timber.tag(TAG).d("Jumped to queue index=$index from wear")
         }
     }
@@ -563,9 +567,10 @@ class WearCommandReceiver : WearableListenerService() {
                 }
 
                 getOrBuildMediaController { controller ->
-                    controller.setMediaItems(mediaItems, startIndex, 0L)
-                    controller.prepare()
-                    controller.play()
+                    startExplicitPlayback(controller, startSong.id) {
+                        controller.setMediaItems(mediaItems, startIndex, 0L)
+                        controller.prepare()
+                    }
                     Timber.tag(TAG).d(
                         "Playing from context: $contextType, song=${songs[startIndex].title}, " +
                             "queue size=${songs.size}"
@@ -609,6 +614,42 @@ class WearCommandReceiver : WearableListenerService() {
             Timber.tag(TAG).w(error, "Failed to pre-resolve cloud URI for songId=${song.id}")
             false
         }
+    }
+
+    private fun startExplicitPlayback(
+        controller: MediaController,
+        targetMediaId: String,
+        preparePlayback: (() -> Unit)? = null,
+    ) {
+        preparePlayback?.invoke()
+        forceExplicitPlayback(controller, targetMediaId)
+        EXPLICIT_PLAY_RETRY_DELAYS_MS.forEach { delayMs ->
+            mainHandler.postDelayed(
+                {
+                    if (!controller.isConnected) return@postDelayed
+                    forceExplicitPlayback(controller, targetMediaId)
+                },
+                delayMs,
+            )
+        }
+    }
+
+    private fun forceExplicitPlayback(
+        controller: MediaController,
+        targetMediaId: String,
+    ) {
+        val currentMediaId = controller.currentMediaItem?.mediaId.orEmpty()
+        val targetMatchesCurrent = currentMediaId.isBlank() ||
+            targetMediaId.isBlank() ||
+            currentMediaId == targetMediaId
+        if (!targetMatchesCurrent || controller.isPlaying) {
+            return
+        }
+        if (controller.playbackState == Player.STATE_IDLE) {
+            controller.prepare()
+        }
+        controller.playWhenReady = true
+        controller.play()
     }
 
     /**
