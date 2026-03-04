@@ -231,14 +231,14 @@ private fun ProviderCard(
                 Icon(
                     painter = iconPainter,
                     contentDescription = null,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(40.dp),
                     tint = iconColor
                 )
             } else if (icon != null) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(40.dp),
                     tint = iconColor
                 )
             }
