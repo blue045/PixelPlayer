@@ -1733,13 +1733,14 @@ private fun QueueMiniPlayer(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SmartImage(
-                model = song.albumArtUriString ?: R.drawable.rounded_album_24,
+                model = song.albumArtUriString,
                 shape = albumShape,
                 contentDescription = "Carátula",
                 modifier = Modifier
                     .size(56.dp)
                     .clip(albumShape),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                targetSize = Size(168, 168)
             )
 
             Column(
