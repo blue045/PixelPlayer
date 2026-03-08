@@ -1679,27 +1679,7 @@ private fun QueueMiniPlayer(
     val bodyTapInteractionSource = remember { MutableInteractionSource() }
     val corners = 20.dp
     val albumCorners = 10.dp
-//    val shape = AbsoluteSmoothCornerShape(
-//        cornerRadiusTR = corners,
-//        smoothnessAsPercentTL = 60,
-//        cornerRadiusTL = corners,
-//        smoothnessAsPercentTR = 60,
-//        cornerRadiusBR = corners,
-//        smoothnessAsPercentBL = 60,
-//        cornerRadiusBL = corners,
-//        smoothnessAsPercentBR = 60
-//    )
     val albumShape = RoundedCornerShape(albumCorners)
-//        AbsoluteSmoothCornerShape(
-//            cornerRadiusTR = albumCorners,
-//            smoothnessAsPercentTL = 60,
-//            cornerRadiusTL = albumCorners,
-//            smoothnessAsPercentTR = 60,
-//            cornerRadiusBR = albumCorners,
-//            smoothnessAsPercentBL = 60,
-//            cornerRadiusBL = albumCorners,
-//            smoothnessAsPercentBR = 60
-//        )
 
     Surface(
         modifier = modifier
@@ -1733,7 +1713,7 @@ private fun QueueMiniPlayer(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SmartImage(
-                model = song.albumArtUriString ?: R.drawable.rounded_album_24,
+                model = song.albumArtUriString,
                 shape = albumShape,
                 contentDescription = "Carátula",
                 modifier = Modifier
