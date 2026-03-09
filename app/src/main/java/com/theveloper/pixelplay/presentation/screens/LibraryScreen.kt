@@ -3125,7 +3125,14 @@ fun ArtistListItem(artist: Artist, onClick: () -> Unit, isLoading: Boolean = fal
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!artist.imageUrl.isNullOrEmpty()) {
+                    if (!artist.customImageUri.isNullOrEmpty()) {
+                        SmartImage(
+                            model = artist.customImageUri,
+                            contentDescription = artist.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (!artist.imageUrl.isNullOrEmpty()) {
                         AsyncImage(
                             model = ImageRequest.Builder(LocalContext.current)
                                 .data(artist.imageUrl)
